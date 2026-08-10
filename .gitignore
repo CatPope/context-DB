@@ -1,0 +1,15 @@
+# 실제 맥락 DB — 사내·사적 대화 포함 → 절대 커밋 금지(로컬 전용)
+context.db
+context.db-wal
+context.db-shm
+*.db
+
+# 로컬 설정(사설 경로 포함) — 예시는 context-db.config.example.json 커밋
+context-db.config.json
+
+# Python
+__pycache__/
+*.pyc
+
+# OMC 운영 아티팩트
+.omc/
