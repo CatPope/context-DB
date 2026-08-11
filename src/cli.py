@@ -4,7 +4,7 @@
 context-DB 통합 CLI (cli.py)
 
 설치/설정:        setup (skill 배포 + 백그라운드 상시 적재 등록)
-운영/적재(쓰기):  init, ingest, watch, set-project, tag
+운영/적재(쓰기):  init, ingest, watch, set-project, rename-project, tag
 조회(읽기전용):   search, timeline, by-tag, by-person, projects, sources, links, stats
 
 경로 기본값은 context-db.config.json 에서 읽는다(없으면 내장 기본값).
@@ -19,7 +19,9 @@ CLI 인자가 항상 config 보다 우선한다. 조회 명령은 --json 을 지
   context-db search "회의 일정" --project 2 --limit 20 --json
   context-db timeline --channel "[채널명]" --json
   context-db by-tag 예시태그 --json
-  context-db set-project "[채널명]" "프로젝트명"
+  context-db set-project "[채널명]" "프로젝트명"          # 미분류 소스에 프로젝트 지정/재매핑
+  context-db set-project "문서명" "프로젝트명" --type web_doc  # 이름이 여러 유형에 겹칠 때
+  context-db rename-project "오타난프로젝트" "올바른프로젝트명"  # 오타 수정(또는 기존 프로젝트로 병합)
   context-db tag "회의 OR 일정" --add 예시태그
 """
 from __future__ import annotations
@@ -150,20 +152,70 @@ def cmd_watch(args, cfg):
 
 
 def cmd_set_project(args, cfg):
+    """소스(채널/웹문서/파일함, 타입 무관)를 지정 프로젝트로 재매핑.
+    이름이 여러 source_type에 걸쳐 겹치면 --type 으로 특정한다."""
     r = resolve(args, cfg)
     con = db_connect(r["db"])
     try:
         pid = ing.get_or_create_project(con, args.project_name)
-        st = ing.source_type_id(con, "messenger")
-        cur = con.execute(
-            "UPDATE source SET project_id=? WHERE source_type_id=? AND name=?",
-            (pid, st, args.channel),
-        )
-        con.commit()
-        if cur.rowcount:
-            print(f"[set-project] '{args.channel}' → '{args.project_name}' 재매핑 완료")
+        if args.type:
+            st = ing.source_type_id(con, args.type)
+            cur = con.execute(
+                "UPDATE source SET project_id=? WHERE source_type_id=? AND name=?",
+                (pid, st, args.source),
+            )
+            moved = cur.rowcount
         else:
-            print(f"[set-project] 채널 '{args.channel}' 를 찾지 못함")
+            matches = con.execute(
+                "SELECT s.source_id, st.code FROM source s "
+                "JOIN source_type st ON st.source_type_id=s.source_type_id "
+                "WHERE s.name=?", (args.source,),
+            ).fetchall()
+            if len(matches) > 1:
+                types = ", ".join(code for _, code in matches)
+                print(f"[set-project] '{args.source}' 이름이 여러 소스 유형({types})에 존재합니다. "
+                      f"--type 으로 지정하세요.")
+                return
+            moved = 0
+            if matches:
+                con.execute("UPDATE source SET project_id=? WHERE source_id=?", (pid, matches[0][0]))
+                moved = 1
+        con.commit()
+        if moved:
+            print(f"[set-project] '{args.source}' → '{args.project_name}' 재매핑 완료")
+        else:
+            print(f"[set-project] 소스 '{args.source}' 를 찾지 못함")
+    finally:
+        con.close()
+
+
+def cmd_rename_project(args, cfg):
+    """프로젝트명 오타 수정. new_name 이 이미 존재하면 그 프로젝트로 소속 소스를 옮기고
+    빈 old_name 프로젝트는 삭제(병합)한다. 존재하지 않으면 단순 이름 변경."""
+    r = resolve(args, cfg)
+    con = db_connect(r["db"])
+    try:
+        old = con.execute("SELECT project_id FROM project WHERE name=?", (args.old_name,)).fetchone()
+        if not old:
+            print(f"[rename-project] 프로젝트 '{args.old_name}' 를 찾지 못함")
+            return
+        old_id = old[0]
+        new = con.execute("SELECT project_id FROM project WHERE name=?", (args.new_name,)).fetchone()
+        if new is None:
+            con.execute("UPDATE project SET name=? WHERE project_id=?", (args.new_name, old_id))
+            con.commit()
+            print(f"[rename-project] '{args.old_name}' → '{args.new_name}' 이름 변경 완료")
+            return
+        new_id = new[0]
+        if new_id == old_id:
+            print(f"[rename-project] '{args.old_name}' 과 '{args.new_name}' 은 이미 동일한 프로젝트입니다")
+            return
+        cur = con.execute("UPDATE source SET project_id=? WHERE project_id=?", (new_id, old_id))
+        moved = cur.rowcount
+        con.execute("DELETE FROM project WHERE project_id=?", (old_id,))
+        con.commit()
+        print(f"[rename-project] '{args.old_name}'(소스 {moved}개) → 기존 '{args.new_name}' 로 병합 완료, "
+              f"빈 프로젝트 삭제")
     finally:
         con.close()
 
@@ -401,9 +453,11 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_roots(sp):
-        sp.add_argument("--chat-root"); sp.add_argument("--files-root")
-        sp.add_argument("--webdoc"); sp.add_argument("--webdoc-title")
-        sp.add_argument("--project")
+        sp.add_argument("--chat-root", help="메신저 채팅저장 루트 폴더 경로(미지정 시 config의 chat_root)")
+        sp.add_argument("--files-root", help="메신저 받은파일 폴더 경로(미지정 시 config의 files_root)")
+        sp.add_argument("--webdoc", help="적재할 웹 문서 URL(미지정 시 config의 webdoc)")
+        sp.add_argument("--webdoc-title", help="웹 문서 제목(미지정 시 config의 webdoc_title, 기본 '공유 문서')")
+        sp.add_argument("--project", help="신규 소스에 부여할 프로젝트명(미지정 시 config의 project, 기본 '미분류')")
 
     sp = sub.add_parser("setup", help="skill 배포 + (선택) 상시 적재 등록")
     sp.add_argument("--provider", default="claude",
@@ -415,47 +469,80 @@ def build_parser():
     sp.add_argument("--interval", type=int, default=None, help="상시 적재 주기(분, 기본 10)")
     sp.set_defaults(func=cmd_setup)
 
-    sub.add_parser("init").set_defaults(func=cmd_init)
+    sp = sub.add_parser("init", help="빈 DB에 스키마 적용(멱등 — 이미 있으면 무시)")
+    sp.set_defaults(func=cmd_init)
 
-    sp = sub.add_parser("ingest"); add_roots(sp); sp.set_defaults(func=cmd_ingest)
-    sp = sub.add_parser("watch"); add_roots(sp)
-    sp.add_argument("--interval", type=int, default=None); sp.set_defaults(func=cmd_watch)
+    sp = sub.add_parser("ingest", help="1회 전체 적재(멱등 — 신규분만 반영)")
+    add_roots(sp)
+    sp.set_defaults(func=cmd_ingest)
 
-    sp = sub.add_parser("set-project")
-    sp.add_argument("channel"); sp.add_argument("project_name"); sp.set_defaults(func=cmd_set_project)
+    sp = sub.add_parser("watch", help="백그라운드 지속 적재(폴링 루프, Ctrl+C 종료)")
+    add_roots(sp)
+    sp.add_argument("--interval", type=int, default=None,
+                    help="폴링 주기(초, 미지정 시 config의 watch_interval 또는 60)")
+    sp.set_defaults(func=cmd_watch)
 
-    sp = sub.add_parser("tag")
-    sp.add_argument("keyword", nargs="?", default=None)
-    sp.add_argument("--id", type=int, default=None)
-    sp.add_argument("--add", required=True); sp.add_argument("--limit", type=int, default=50)
+    sp = sub.add_parser("set-project", help="소스(채널/웹문서/파일함)의 프로젝트 재매핑 — 미분류 소스 배정, 오배정 수정")
+    sp.add_argument("source", help="재매핑할 소스명(메신저 채널명/웹문서 제목/파일함명 — sources 명령으로 확인)")
+    sp.add_argument("project_name", help="새로 지정할 프로젝트명(없으면 자동 생성)")
+    sp.add_argument("--type", help="이름이 여러 소스 유형에 겹칠 때 지정(예: messenger, web_doc, file)")
+    sp.set_defaults(func=cmd_set_project)
+
+    sp = sub.add_parser("rename-project", help="프로젝트명 오타 수정(또는 기존 프로젝트로 병합)")
+    sp.add_argument("old_name", help="현재(잘못 입력된) 프로젝트명")
+    sp.add_argument("new_name", help="바꿀 프로젝트명 — 이미 존재하면 그 프로젝트로 소스를 병합")
+    sp.set_defaults(func=cmd_rename_project)
+
+    sp = sub.add_parser("tag", help="검색 결과 또는 특정 항목에 태그 부여")
+    sp.add_argument("keyword", nargs="?", default=None,
+                    help="이 키워드로 FTS 검색된 항목에 태그 부여(--id와 함께 쓰지 않음)")
+    sp.add_argument("--id", type=int, default=None, help="특정 context_item_id 하나에만 태그 부여")
+    sp.add_argument("--add", required=True, help="부여할 태그명(필수)")
+    sp.add_argument("--limit", type=int, default=50, help="keyword 매치 시 태그를 부여할 최대 항목 수(기본 50)")
     sp.set_defaults(func=cmd_tag)
 
-    sp = sub.add_parser("search"); sp.add_argument("keyword")
-    sp.add_argument("--project"); sp.add_argument("--limit", type=int, default=20)
-    sp.add_argument("--json", action="store_true"); sp.set_defaults(func=cmd_search)
+    sp = sub.add_parser("search", help="FTS 전문검색(키워드 기반)")
+    sp.add_argument("keyword", help="검색 키워드(예: \"서버 권장사양\", 접두어 검색은 \"키워드*\")")
+    sp.add_argument("--project", help="프로젝트 ID 또는 이름으로 범위 제한")
+    sp.add_argument("--limit", type=int, default=20, help="반환할 최대 결과 수(기본 20)")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력(에이전트/스크립트용)")
+    sp.set_defaults(func=cmd_search)
 
-    sp = sub.add_parser("timeline")
-    sp.add_argument("--project"); sp.add_argument("--channel")
-    sp.add_argument("--limit", type=int, default=20); sp.add_argument("--json", action="store_true")
+    sp = sub.add_parser("timeline", help="최근 맥락 타임라인 조회")
+    sp.add_argument("--project", help="프로젝트 ID 또는 이름으로 범위 제한")
+    sp.add_argument("--channel", help="특정 소스(채널)명으로 범위 제한")
+    sp.add_argument("--limit", type=int, default=20, help="반환할 최대 결과 수(기본 20)")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
     sp.set_defaults(func=cmd_timeline)
 
-    sp = sub.add_parser("by-tag"); sp.add_argument("tag")
-    sp.add_argument("--json", action="store_true"); sp.set_defaults(func=cmd_by_tag)
+    sp = sub.add_parser("by-tag", help="태그로 맥락+링크 조회(M:N)")
+    sp.add_argument("tag", help="조회할 태그명")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
+    sp.set_defaults(func=cmd_by_tag)
 
-    sp = sub.add_parser("by-person"); sp.add_argument("name")
-    sp.add_argument("--limit", type=int, default=20); sp.add_argument("--json", action="store_true")
+    sp = sub.add_parser("by-person", help="특정 인물이 남긴 맥락 조회")
+    sp.add_argument("name", help="발화자 표시 이름(person.display_name과 정확히 일치해야 함)")
+    sp.add_argument("--limit", type=int, default=20, help="반환할 최대 결과 수(기본 20)")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
     sp.set_defaults(func=cmd_by_person)
 
-    sp = sub.add_parser("projects"); sp.add_argument("--json", action="store_true")
+    sp = sub.add_parser("projects", help="프로젝트 목록과 소속 소스 수 조회")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
     sp.set_defaults(func=cmd_projects)
 
-    sp = sub.add_parser("sources"); sp.add_argument("--project")
-    sp.add_argument("--json", action="store_true"); sp.set_defaults(func=cmd_sources)
+    sp = sub.add_parser("sources", help="소스(채널/웹문서/파일함) 목록 조회")
+    sp.add_argument("--project", help="프로젝트 ID 또는 이름으로 범위 제한")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
+    sp.set_defaults(func=cmd_sources)
 
-    sp = sub.add_parser("links"); sp.add_argument("--type"); sp.add_argument("--limit", type=int, default=50)
-    sp.add_argument("--json", action="store_true"); sp.set_defaults(func=cmd_links)
+    sp = sub.add_parser("links", help="외부 링크(웹 문서/받은파일) 목록 조회")
+    sp.add_argument("--type", help="소스 유형 코드로 필터(예: web_doc, file)")
+    sp.add_argument("--limit", type=int, default=50, help="반환할 최대 결과 수(기본 50)")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
+    sp.set_defaults(func=cmd_links)
 
-    sp = sub.add_parser("stats"); sp.add_argument("--json", action="store_true")
+    sp = sub.add_parser("stats", help="건수·무결성 요약(FTS 동기화 여부, 고아 데이터 등)")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
     sp.set_defaults(func=cmd_stats)
     return p
 

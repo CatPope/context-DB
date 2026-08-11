@@ -79,8 +79,22 @@ PATH 미설정 환경에서도 위 폴백 명령(`python <context-DB-path>/src/c
 | 스키마 생성 | `context-db init` |
 | 1회 적재 | `context-db ingest` |
 | 백그라운드 지속 적재 | `context-db watch --interval 60` |
-| 채널→프로젝트 재매핑 | `context-db set-project "<채널>" "<프로젝트>"` |
+| 소스→프로젝트 재매핑(미분류 배정·오배정 수정) | `context-db set-project "<소스명>" "<프로젝트>" [--type <코드>]` |
+| 프로젝트명 오타 수정/병합 | `context-db rename-project "<기존명>" "<새이름>"` |
 | 수동 태깅 | `context-db tag "<키워드>" --add <태그>` |
+
+## 유지보수 절차 (코드 변경 시 작업 문서/skill 갱신) — 개발 에이전트용
+`src/cli.py`·`src/ingest.py`·`src/schema.sql` 등 **동작을 바꾸는 코드 변경**을 했다면, 커밋 전에 아래 순서로 문서·skill을 함께 갱신한다(ADR-013에서 확립된 절차).
+
+1. **코드 변경 + 테스트 추가**: 새 명령/옵션이면 `tests/test_context_db.py`의 "14. CLI 스모크" 섹션에 회귀 케이스 추가.
+2. **테스트 실행**: `python tests/test_context_db.py` → exit 0(전체 PASS) 확인. 실패하면 문서화 이전에 원인 해결.
+3. **`--help` 정합성**: 새/변경된 명령·인자에 `argparse`의 `help=` 문구를 한글로 채운다. `context-db <cmd> --help` 로 직접 확인.
+4. **문서 갱신 대상**:
+   - `README.md` — 명령 표(운영/조회)에 새 명령·옵션 반영.
+   - `context-db.skill.md`(본 파일) — "조회 명령"/"운영 명령" 표 반영. 에이전트 동작에 영향을 주면 "사용 규칙"·"검색 팁"도 함께 수정.
+   - `docs/dev/ADR-context-DB.md` — 새 ADR 항목(상태/맥락/결정/대안/결과) 추가, 상단 요약·변경 이력(작업 기록)·§6 테스트 카운트 갱신. 심화 질의응답이 있었다면 `docs/dev/질의응답.md` 에도 기록.
+5. **skill 재배포**: `context-db setup`(또는 `python src/cli.py setup`)으로 전역 `~/.claude/skills/context-db/SKILL.md` 를 다시 배포한다. `<context-DB-path>` 자리표시자가 실제 경로로 치환됐는지 확인.
+6. **git 반영은 사용자 승인 후에만**: 커밋/푸시는 명시적으로 요청받았을 때만 수행한다(문서·skill 갱신 자체는 커밋 전 준비 단계).
 
 ## 프라이버시
 사내·사적 대화 포함 → **로컬 전용, 외부 전송 금지**. `context.db`·설정은 커밋 금지(.gitignore).

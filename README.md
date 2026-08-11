@@ -69,7 +69,8 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 | `context-db init` | 빈 DB에 스키마 적용 |
 | `context-db ingest` | 1회 전체 적재(멱등 — 신규분만) |
 | `context-db watch [--interval 60]` | **백그라운드 지속 적재**(폴링 루프, Ctrl+C 종료) |
-| `context-db set-project "<채널>" "<프로젝트>"` | 채널의 프로젝트 재매핑 |
+| `context-db set-project "<소스명>" "<프로젝트>" [--type <코드>]` | 소스(채널/웹문서/파일함)의 프로젝트 재매핑 — 미분류 소스 배정·오배정 수정. 이름이 여러 유형에 겹칠 때만 `--type` 필요 |
+| `context-db rename-project "<기존명>" "<새이름>"` | 프로젝트명 오타 수정(새이름이 이미 있으면 그 프로젝트로 병합 후 빈 프로젝트 삭제) |
 | `context-db tag "<키워드>" --add <태그>` | 검색 결과에 수동 태깅 |
 
 ### 조회(읽기전용, `--json` 지원)

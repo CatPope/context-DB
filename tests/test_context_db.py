@@ -234,6 +234,31 @@ def main():
     r = run("sources", "--json")
     src = json.loads(r.stdout) if ok_json(r) else []
     check("set-project 반영", any(x["name"] == CHANNEL and x["project"] == "재매핑테스트" for x in src), r.stdout[:160])
+
+    # set-project — 메신저 외 타입(file)도 재매핑 가능해야 함(타입 제약 제거 회귀)
+    run("set-project", "메신저 받은파일", "파일프로젝트")
+    r = run("sources", "--json")
+    src = json.loads(r.stdout) if ok_json(r) else []
+    check("set-project(file 타입) 반영",
+          any(x["name"] == "메신저 받은파일" and x["project"] == "파일프로젝트" for x in src), r.stdout[:200])
+
+    # rename-project — 단순 오타 수정
+    run("rename-project", "파일프로젝트", "파일프로젝트-수정")
+    r = run("projects", "--json")
+    proj = json.loads(r.stdout) if ok_json(r) else []
+    check("rename-project 단순 변경",
+          any(x["name"] == "파일프로젝트-수정" for x in proj)
+          and not any(x["name"] == "파일프로젝트" for x in proj), r.stdout[:200])
+
+    # rename-project — 기존 프로젝트로 병합(빈 프로젝트 삭제)
+    run("rename-project", "파일프로젝트-수정", "테스트프로젝트")
+    r = run("sources", "--json")
+    src = json.loads(r.stdout) if ok_json(r) else []
+    r2 = run("projects", "--json")
+    proj = json.loads(r2.stdout) if ok_json(r2) else []
+    check("rename-project 병합 반영",
+          any(x["name"] == "메신저 받은파일" and x["project"] == "테스트프로젝트" for x in src)
+          and not any(x["name"] == "파일프로젝트-수정" for x in proj), r.stdout[:200] + r2.stdout[:200])
     r = run("tag", "여러", "--add", "인사")
     r2 = run("by-tag", "인사", "--json")
     check("tag→by-tag 왕복", ok_json(r2) and len(json.loads(r2.stdout)) >= 1, r2.stdout[:120])

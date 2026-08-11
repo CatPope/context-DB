@@ -1,0 +1,65 @@
+---
+title: context-DB ERD (Crow's Foot Notation)
+---
+erDiagram
+    PROJECT {
+        int project_id PK
+        string name
+        string description
+        datetime created_at
+    }
+    SOURCE_TYPE {
+        int source_type_id PK
+        string code
+        string label
+    }
+    SOURCE {
+        int source_id PK
+        int project_id FK
+        int source_type_id FK
+        string name
+        string uri
+        int is_ephemeral
+        datetime created_at
+    }
+    PERSON {
+        int person_id PK
+        string display_name
+        string role
+    }
+    CONTEXT_ITEM {
+        int context_item_id PK
+        int source_id FK
+        int person_id FK
+        string item_type
+        datetime event_ts
+        string content
+        string thread_key
+        string external_id
+        datetime created_at
+    }
+    LINK {
+        int link_id PK
+        int context_item_id FK
+        int source_id FK
+        string url
+        string title
+        datetime last_checked_at
+    }
+    TAG {
+        int tag_id PK
+        string name
+    }
+    CONTEXT_ITEM_TAG {
+        int context_item_id PK, FK
+        int tag_id PK, FK
+    }
+
+    PROJECT       ||--o{ SOURCE          : "has"
+    SOURCE_TYPE   ||--o{ SOURCE          : "classifies"
+    SOURCE        ||--o{ CONTEXT_ITEM    : "provides"
+    PERSON        |o--o{ CONTEXT_ITEM    : "authors"
+    SOURCE        |o--o{ LINK            : "has"
+    CONTEXT_ITEM  |o--o{ LINK            : "references"
+    CONTEXT_ITEM  ||--o{ CONTEXT_ITEM_TAG: "tagged via"
+    TAG           ||--o{ CONTEXT_ITEM_TAG: "labels"

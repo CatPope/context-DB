@@ -8,7 +8,7 @@
 |---|---|
 | 과제 | context-DB — 에이전트 맥락 저장·질의 DB (SQLite + FTS5) |
 | 작성일자 | 2026-08-10 (최종 갱신 2026-08-11) |
-| 상태 | MVP + `src/` 재구성 + 용어 일반화 + `setup` 명령 · 테스트 40/40 PASS · 커밋 완료 |
+| 상태 | MVP + `src/` 재구성 + 용어 일반화 + `setup` 명령 + `set-project` 일반화/`rename-project` 신설 · 테스트 43/43 PASS · 커밋 완료 |
 | 데이터 | 사내·사적 대화 포함 → **로컬 전용, 외부 전송 금지** |
 
 ---
@@ -30,7 +30,9 @@
 **변경 이력(작업 기록)**
 - 2026-08-10: MVP 구현(스키마·적재·CLI·skill·테스트) + 민감내용 스크럽 후 첫 커밋(`196d57e`).
 - 2026-08-11: 소스 `src/` 재구성 · `맥락 정보.md` 폴백 파싱 제거 · `context-db setup` 명령 추가(제공자·경로·`--background`) · 용어 일반화(메신저/웹 문서/`<context-DB-path>`, "현재 하이웍스만 지원" 안내) · 실 DB 용어 마이그레이션 · 테스트 40/40. (`bc4fe16`)
-- 2026-08-11(병합): 원격 직접 커밋과 분기 발생 → `a2e016c` 로 병합. **`src/` 레이아웃 유지**(사용자 결정), 원격 결정 수용(상세설계서 → `docs/context-db-상세설계서.md`, `docs/맥락 정보.md` 삭제), 용어는 완전본(`web_doc`) 채택. 리네임 참조 일괄 갱신 후 push 완료.
+- 2026-08-11(병합): 원격 직접 커밋과 분기 발생 → `a2e016c` 로 병합. **`src/` 레이아웃 유지**(사용자 결정), 원격 결정 수용(상세설계서 → `docs/dev/context-db-상세설계서.md`, `docs/맥락 정보.md` 삭제), 용어는 완전본(`web_doc`) 채택. 리네임 참조 일괄 갱신 후 push 완료.
+- 2026-08-11(발표 준비): OJT 발표 원고(`docs/presentation/context-db-발표원고.md`) 작성 중 받은 심화 질문(FTS5/한글 품질, 태그 역할, 프로젝트·소스 동적 유지, NULL 처리, 벡터DB 전환 계획, `--help` 지원, 미분류/오타 프로젝트 수정)에 코드 기준으로 답변 → `docs/dev/질의응답.md` 로 문서화. 이 과정에서 `set-project`가 메신저 타입에만 하드코딩된 제약을 발견 → ADR-013.
+- 2026-08-11(ADR-013): `cli.py` 전 옵션에 `--help` 문구 채움 · `set-project` 소스 타입 제약 제거(+`--type` 모호성 해소) · `rename-project` 신설(오타 수정/병합) · 회귀 테스트 3건 추가 · README/skill 문서 갱신 · skill 재배포. 테스트 40→43/43.
 
 ## 2. 파일 맵
 
@@ -47,9 +49,11 @@
 | `context-db.skill.md` | 에이전트 연동 skill(CLI 기반) | ✅ |
 | `src/queries.sql` | 대표 질의 Q1~Q5 + 뷰 | ✅ |
 | `README.md` | 사용법 | ✅ |
-| `tests/test_context_db.py` | 결정적 테스트 스위트(40 케이스) | ✅ |
-| `docs/*.md` | 제안서·상위설계서·상세설계·비교보고서·테스트보고서·본 ADR | ✅ |
-| `docs/context-db-상세설계서.md` | 상세설계 spec(커밋본; `.omc/specs/` 사본은 gitignore) | ✅ |
+| `tests/test_context_db.py` | 결정적 테스트 스위트(43 케이스) | ✅ |
+| `docs/dev/*.md` | 제안서·상위설계서·상세설계·비교보고서·테스트보고서·질의응답·본 ADR | ✅ |
+| `docs/dev/context-db-상세설계서.md` | 상세설계 spec(커밋본; `.omc/specs/` 사본은 gitignore) | ✅ |
+| `docs/dev/질의응답.md` | 발표 준비 중 받은 심화 질문(FTS5/한글, 태그, 프로젝트 유지, NULL 처리, 벡터DB, `--help`, 미분류/오타) Q&A 기록 | ✅ |
+| `docs/presentation/context-db-발표원고.md` | OJT 발표용 슬라이드 구성안 + 발표 스크립트(일반 문서) | ✅ |
 
 ## 3. 아키텍처 결정 기록 (ADR)
 
@@ -97,7 +101,7 @@
 
 ### ADR-007 — DB 위에 CLI 계층(`context-db`) 도입: 읽기전용 계약 + `--json`
 - **상태**: 채택
-- **맥락**: 에이전트가 raw SQL을 쓰면 스키마 프롬프트 부담·쓰기 사고·오류 여지. (DB직접 vs CLI 비교: `docs/DB기반_vs_CLI기반_비교보고서.md`)
+- **맥락**: 에이전트가 raw SQL을 쓰면 스키마 프롬프트 부담·쓰기 사고·오류 여지. (DB직접 vs CLI 비교: `docs/dev/DB기반_vs_CLI기반_비교보고서.md`)
 - **결정**: 조회는 읽기전용 명령(search/timeline/by-tag/by-person/projects/sources/links/stats) + `--json`. 쓰기는 ingest/watch로 일원화. skill은 CLI만 안내.
 - **대안**: DB 직접(유연하나 위험). → 하이브리드: CLI 기본, DB직접은 애드혹 분석용 예외.
 - **결과**: 안전·에이전트 친화·이식성↑. 임의 질의는 코드 추가 필요(트레이드오프).
@@ -133,13 +137,23 @@
 - **마이그레이션**: 기존 `context.db`의 `source_type` 코드/라벨과 `source.name`(받은파일)을 UPDATE로 일괄 갱신(건수·무결성 불변, 611건 검증).
 - **결과**: 다른 메신저·웹 문서로 확장 가능한 형태. 코드 식별자 `google_doc`→`web_doc` 변경은 **기존 DB 마이그레이션 필요**(주의). 원본 입력문서(과제제안서·상위설계서)와 인터뷰 부록은 역사 기록으로 원문 유지.
 
+### ADR-013 — `set-project` 소스 타입 제약 제거 + `rename-project` 신설 + `--help` 문구 채움
+- **상태**: 채택 (2026-08-11)
+- **맥락**: 발표 준비 질의응답 중 "미분류 소스에 프로젝트를 배정하거나 프로젝트명 오타를 고치려면?" 질문에 답하다가, `set-project`가 `source_type_id`를 `messenger`로 하드코딩해 웹 문서·파일함 소스는 재매핑이 불가능한 것을 발견. 또한 프로젝트명은 `get_or_create_project`가 이름 기준 자연키라 오타 = 새 프로젝트로 분리되는데, 이를 병합/수정할 명령이 없었음. `cli.py`의 각 옵션 `help=` 문구도 대부분 비어 `--help`의 설명력이 낮았음.
+- **결정**:
+  1. `cmd_set_project`에서 `source_type_id='messenger'` 하드코딩 제거 → 이름으로 전 타입을 조회하고, 이름이 둘 이상 타입에 겹치면 `--type <코드>`를 요구하는 에러로 유도(자동 오선택 방지).
+  2. `rename-project <old> <new>` 신설: `new`가 없으면 단순 `UPDATE project SET name`, `new`가 이미 있으면 `old` 소속 소스를 전부 `new`로 옮기고 빈 `old` 프로젝트를 삭제(병합).
+  3. `build_parser()`의 전 서브커맨드·인자에 한글 `help=` 채움.
+- **대안**: 소스 지정을 `source_id`로만 받기(정밀하나 `sources` 조회를 먼저 강제해야 해 UX 저하) → 이름 기반 + 모호 시 `--type` 요구로 절충.
+- **결과**: 테스트 3건 추가(파일 타입 재매핑, 단순 개명, 병합) — 전체 43/43 PASS. README·skill 문서 갱신, 전역 skill 재배포. 상세 답변은 `docs/dev/질의응답.md` Q7.
+
 ## 4. 데이터 모델 요약
 
 엔티티: `project`(1:N)→`source`←`source_type`(1:N), `source`(1:N)→`context_item`←`person`(1:N),
 `context_item`↔`tag`(**M:N** via `context_item_tag`), `link`(context_item/source에 귀속), `context_fts`(FTS5).
 - 자연키: `source(source_type_id, name)`, `context_item(source_id, external_id)`, `person(display_name)`, `tag(name)`.
 - 파서 규칙: 헤더 `[YYYY-MM-DD 오전/오후 H:MM] 이름`, 이후 다음 헤더 전까지 멀티라인 본문. 날짜=파일명·시각=헤더. item_type ∈ {message, system, file, note, excerpt}.
-- 전체 DDL·근거: `docs/context-db-상세설계서.md` §4~7.
+- 전체 DDL·근거: `docs/dev/context-db-상세설계서.md` §4~7.
 
 ## 5. 운영 방법 (빠른 시작)
 ```bash
@@ -178,8 +192,8 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 ※ `setx PATH "%PATH%;..."` 는 1024자 잘림·시스템경로 혼입 위험이 있어 위 방식 권장.
 
 ## 6. 테스트 상태
-- 자동화: `tests/test_context_db.py` **40 PASS / 0 FAIL** (파서·시각변환·멀티라인·item_type·FTS 트리거/검색·토큰화·멱등·Issue1 회귀·인코딩 폴백(cp949/BOM)·받은파일/웹 문서 링크·무결성(FK/CHECK)·뷰·CLI `--json`).
-- 실데이터 스모크: 검색·watch 멱등 통과. 상세: `docs/테스트보고서.md`.
+- 자동화: `tests/test_context_db.py` **43 PASS / 0 FAIL** (파서·시각변환·멀티라인·item_type·FTS 트리거/검색·토큰화·멱등·Issue1 회귀·인코딩 폴백(cp949/BOM)·받은파일/웹 문서 링크·무결성(FK/CHECK)·뷰·CLI `--json`·`set-project` 전 타입 재매핑·`rename-project` 개명/병합).
+- 실데이터 스모크: 검색·watch 멱등 통과. 상세: `docs/dev/테스트보고서.md`.
 
 ## 7. 알려진 한계 & 열린 과제 (다음 에이전트가 이어받을 후보)
 1. **한국어 FTS는 토큰 단위 매칭**(부분문자열 불가). 완화: 접두어(`키워드*`) 안내 → 차기 `trigram`/`unicode61` 토크나이저 또는 벡터(의미) 검색. (상세설계 §10, 테스트보고서 §6)
@@ -207,7 +221,9 @@ python src/cli.py ingest                   # 멱등 재적재(신규 0 기대)
 ```
 
 ## 10. 관련 문서
-- 요구/설계: `docs/과제제안서.md`, `docs/상위설계서.md`, `docs/context-db-상세설계서.md`
+- 요구/설계: `docs/dev/과제제안서.md`, `docs/dev/상위설계서.md`, `docs/dev/context-db-상세설계서.md`
 - 맥락 출처: 개발용 참고자료였던 `docs/맥락 정보.md` 는 삭제됨(적재 대상 아님, 폴백 파싱도 제거). 설정은 `context-db.config.json` 단일 소스.
-- 비교/테스트: `docs/DB기반_vs_CLI기반_비교보고서.md`, `docs/테스트보고서.md`
+- 비교/테스트: `docs/dev/DB기반_vs_CLI기반_비교보고서.md`, `docs/dev/테스트보고서.md`
+- 질의응답: `docs/dev/질의응답.md` (FTS5/한글, 태그, 프로젝트 유지, NULL 처리, 벡터DB, `--help`, 미분류/오타 수정)
+- 발표: `docs/presentation/context-db-발표원고.md`
 - 사용/연동: `README.md`, `context-db.skill.md`
