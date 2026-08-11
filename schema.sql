@@ -157,7 +157,7 @@ LEFT JOIN link l        ON l.context_item_id = ci.context_item_id;
 INSERT OR IGNORE INTO project (name, description) VALUES ('미분류', '프로젝트 미지정 기본 버킷');
 
 INSERT OR IGNORE INTO source_type (code, label) VALUES
-  ('messenger',   '메신저(하이웍스)'),
+  ('messenger',   '메신저'),
   ('google_doc',  '구글 문서'),
   ('web_link',    '웹 링크'),
   ('paper',       '논문'),
