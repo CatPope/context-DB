@@ -6,8 +6,9 @@ context-DB 적재기 (ingest.py)
 설계: .omc/specs/deep-interview-context-db-detailed-design.md §7
 
 기능:
-  1) 하이웍스 채팅 로그(<채널>/<YYYY-MM-DD>.txt)를 파싱해 context_item으로 적재
-  2) 구글독스 문서 / 받은파일을 링크·메타데이터만 등록 (본문 추출 없음)
+  1) 메신저 채팅 로그(<채널>/<YYYY-MM-DD>.txt)를 파싱해 context_item으로 적재
+     (현재는 하이웍스 채팅 저장 포맷만 지원)
+  2) 웹 문서 / 받은파일을 링크·메타데이터만 등록 (본문 추출 없음)
 
 특징:
   - 채널 폴더 = SOURCE(messenger) 1개, 자연키 (source_type_id, name) 기준 멱등
@@ -18,9 +19,9 @@ context-DB 적재기 (ingest.py)
 
 사용 예:
   python ingest.py --db context.db \
-      --chat-root "C:/Users/<사용자>/Documents/하이웍스 채팅저장" \
-      --files-root "C:/Users/<사용자>/Documents/하이웍스 받은파일" \
-      --gdoc "https://docs.google.com/document/d/xxx/edit?tab=t.0" --gdoc-title "공유 문서"
+      --chat-root "<context-DB-path>/메신저 채팅저장" \
+      --files-root "<context-DB-path>/메신저 받은파일" \
+      --webdoc "https://example.com/doc/xxx" --webdoc-title "공유 문서"
 """
 from __future__ import annotations
 
@@ -220,7 +221,7 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
 def ingest_files_root(con, files_root: str, project_name: str) -> int:
     if not files_root or not os.path.isdir(files_root):
         return 0
-    src_id = upsert_source(con, "file", "하이웍스 받은파일", files_root, project_name, is_ephemeral=0)
+    src_id = upsert_source(con, "file", "메신저 받은파일", files_root, project_name, is_ephemeral=0)
     n = 0
     for entry in os.scandir(files_root):
         if entry.is_file():
@@ -232,10 +233,10 @@ def ingest_files_root(con, files_root: str, project_name: str) -> int:
     return n
 
 
-def ingest_gdoc(con, url: str, title: str, project_name: str) -> None:
+def ingest_webdoc(con, url: str, title: str, project_name: str) -> None:
     if not url:
         return
-    src_id = upsert_source(con, "google_doc", title or "공유 문서", url, project_name, is_ephemeral=0)
+    src_id = upsert_source(con, "web_doc", title or "공유 문서", url, project_name, is_ephemeral=0)
     add_link_once(con, url=url, title=title or "공유 문서", source_id=src_id)
     con.commit()
 
@@ -243,12 +244,12 @@ def ingest_gdoc(con, url: str, title: str, project_name: str) -> None:
 # ─────────────────────────── main ───────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="context-DB 적재기")
-    ap.add_argument("--db", default=os.path.join(HERE, "context.db"))
+    ap.add_argument("--db", default=os.path.join(os.path.dirname(HERE), "context.db"))
     ap.add_argument("--schema", default=DEFAULT_SCHEMA)
-    ap.add_argument("--chat-root", default=None, help="하이웍스 채팅저장 루트 폴더")
-    ap.add_argument("--files-root", default=None, help="하이웍스 받은파일 폴더(메타만)")
-    ap.add_argument("--gdoc", default=None, help="구글독스 URL(링크만)")
-    ap.add_argument("--gdoc-title", default="공유 문서")
+    ap.add_argument("--chat-root", default=None, help="메신저 채팅저장 루트 폴더")
+    ap.add_argument("--files-root", default=None, help="메신저 받은파일 폴더(메타만)")
+    ap.add_argument("--webdoc", default=None, help="웹 문서 URL(링크만)")
+    ap.add_argument("--webdoc-title", default="공유 문서")
     ap.add_argument("--project", default="미분류", help="신규 소스에 부여할 프로젝트명")
     args = ap.parse_args()
 
@@ -261,9 +262,9 @@ def main():
         if args.files_root:
             n = ingest_files_root(con, args.files_root, args.project)
             print(f"[받은파일] 링크 {n}건 등록")
-        if args.gdoc:
-            ingest_gdoc(con, args.gdoc, args.gdoc_title, args.project)
-            print(f"[구글독스] 1건 등록: {args.gdoc_title}")
+        if args.webdoc:
+            ingest_webdoc(con, args.webdoc, args.webdoc_title, args.project)
+            print(f"[웹 문서] 1건 등록: {args.webdoc_title}")
 
         total = con.execute("SELECT count(*) FROM context_item").fetchone()[0]
         srcs = con.execute("SELECT count(*) FROM source").fetchone()[0]

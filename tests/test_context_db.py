@@ -21,7 +21,8 @@ except Exception:
     pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+SRC = os.path.join(ROOT, "src")
+sys.path.insert(0, SRC)
 import ingest as ing  # noqa: E402
 
 PASS = 0
@@ -161,7 +162,7 @@ def main():
                         "WHERE s.name='BOM채널'").fetchone()
     check("utf-8-sig BOM 제거", bom_c and bom_c[0] == "BOM테스트내용" and not bom_c[0].startswith("﻿"), bom_c)
 
-    print("== 11. 받은파일/구글독스 적재 + 링크 멱등 ==")
+    print("== 11. 받은파일/웹 문서 적재 + 링크 멱등 ==")
     files_dir = os.path.join(tmp, "files")
     os.makedirs(files_dir)
     for fn in ("a.pdf", "b.txt"):
@@ -169,15 +170,15 @@ def main():
     ing.ingest_files_root(con, files_dir, "테스트프로젝트")
     ing.ingest_files_root(con, files_dir, "테스트프로젝트")  # 재실행(멱등)
     flink = con.execute("SELECT count(*) FROM link l JOIN source s ON s.source_id=l.source_id "
-                        "WHERE s.name='하이웍스 받은파일'").fetchone()[0]
+                        "WHERE s.name='메신저 받은파일'").fetchone()[0]
     check("받은파일 링크 2건(재실행 멱등)", flink == 2, f"links={flink}")
-    ing.ingest_gdoc(con, "https://docs.google.com/document/d/TEST/edit", "테스트문서", "테스트프로젝트")
-    ing.ingest_gdoc(con, "https://docs.google.com/document/d/TEST/edit", "테스트문서", "테스트프로젝트")
+    ing.ingest_webdoc(con, "https://example.com/doc/TEST", "테스트문서", "테스트프로젝트")
+    ing.ingest_webdoc(con, "https://example.com/doc/TEST", "테스트문서", "테스트프로젝트")
     gsrc = con.execute("SELECT count(*) FROM source WHERE source_type_id=(SELECT source_type_id "
-                       "FROM source_type WHERE code='google_doc')").fetchone()[0]
-    glink = con.execute("SELECT count(*) FROM link WHERE url='https://docs.google.com/document/d/TEST/edit'").fetchone()[0]
-    check("구글독스 source 1개(멱등)", gsrc == 1, f"gsrc={gsrc}")
-    check("구글독스 링크 1건(멱등)", glink == 1, f"glink={glink}")
+                       "FROM source_type WHERE code='web_doc')").fetchone()[0]
+    glink = con.execute("SELECT count(*) FROM link WHERE url='https://example.com/doc/TEST'").fetchone()[0]
+    check("웹 문서 source 1개(멱등)", gsrc == 1, f"gsrc={gsrc}")
+    check("웹 문서 링크 1건(멱등)", glink == 1, f"glink={glink}")
 
     print("== 12. 제약 강제(FK/CHECK) ==")
     sid = con.execute("SELECT source_id FROM source WHERE name=?", (CHANNEL,)).fetchone()[0]
@@ -205,7 +206,7 @@ def main():
 
     print("== 14. CLI 스모크(subprocess + returncode + --json) ==")
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    cli = os.path.join(ROOT, "cli.py")
+    cli = os.path.join(SRC, "cli.py")
 
     def run(*a):
         return subprocess.run([sys.executable, cli, "--db", db, *a],

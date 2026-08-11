@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS project (
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS source_type (
   source_type_id INTEGER PRIMARY KEY,
-  code           TEXT NOT NULL UNIQUE,   -- messenger, google_doc, web_link, paper, server_info, file, note
+  code           TEXT NOT NULL UNIQUE,   -- messenger, web_doc, web_link, paper, server_info, file, note
   label          TEXT NOT NULL
 );
 
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS source (
   project_id     INTEGER NOT NULL REFERENCES project(project_id),  -- 가변: 재매핑은 UPDATE
   source_type_id INTEGER NOT NULL REFERENCES source_type(source_type_id),
   name           TEXT NOT NULL,          -- 채널명/문서명/파일저장소명
-  uri            TEXT,                   -- 폴더 절대경로/구글독스 URL/파일 경로
+  uri            TEXT,                   -- 폴더 절대경로/웹 문서 URL/파일 경로
   is_ephemeral   INTEGER NOT NULL DEFAULT 0 CHECK (is_ephemeral IN (0,1)),
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (source_type_id, name)
@@ -156,9 +156,10 @@ LEFT JOIN link l        ON l.context_item_id = ci.context_item_id;
 -- ─────────────────────────────────────────────────────────────
 INSERT OR IGNORE INTO project (name, description) VALUES ('미분류', '프로젝트 미지정 기본 버킷');
 
+-- messenger 는 메신저 채팅 일반을 의미하며, 현재 적재는 하이웍스 채팅 저장 포맷만 지원한다.
 INSERT OR IGNORE INTO source_type (code, label) VALUES
-  ('messenger',   '메신저(하이웍스)'),
-  ('google_doc',  '구글 문서'),
+  ('messenger',   '메신저'),
+  ('web_doc',     '웹 문서'),
   ('web_link',    '웹 링크'),
   ('paper',       '논문'),
   ('server_info', '서버 정보'),

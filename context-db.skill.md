@@ -1,6 +1,6 @@
 ---
 name: context-db
-description: 에이전트가 흩어진 맥락(하이웍스 대화·구글독스·받은파일)을 로컬 context-db CLI로 회수한다. "이 작업 맥락 줘", "지난 논의 찾아줘", 타임라인 복원, 키워드/태그/인물 검색이 필요할 때 사용.
+description: 에이전트가 흩어진 맥락(메신저 대화·웹 문서·받은파일)을 로컬 context-db CLI로 회수한다. "이 작업 맥락 줘", "지난 논의 찾아줘", 타임라인 복원, 키워드/태그/인물 검색이 필요할 때 사용.
 ---
 
 # context-db skill
@@ -8,12 +8,14 @@ description: 에이전트가 흩어진 맥락(하이웍스 대화·구글독스�
 흩어지고 휘발되는 맥락을 적재한 **로컬 SQLite DB(`context.db`)** 를 `context-db` CLI로 질의해
 필요한 맥락만 가져온다. SQL을 몰라도 되고, **읽기전용 조회 명령**만 사용한다.
 
+> 소스 유형: 메신저 대화·웹 문서·받은파일. **메신저 적재는 현재 하이웍스 채팅 저장 포맷만 지원**한다.
+
 ## 사용 규칙 (중요)
 - **조회 명령만** 사용(아래 목록). 적재/수정은 보통 `watch`·스케줄러가 처리(운영자 설정 시)하므로 건드리지 않는다.
 - 항상 `--limit` 로 결과를 제한(기본 20).
 - 에이전트가 파싱할 때는 **`--json`** 을 붙인다.
 - 프로젝트를 알면 `--project <id|name>` 로 범위를 좁힌다. 값이 불확실하면 **먼저 `projects`/`sources` 로 유효한 값을 확인**한 뒤 필터링한다(오타/없는 값은 조용히 `[]` 를 반환).
-- 호출: `context-db <cmd>`. PATH에 없으면 `python <repo>/cli.py <cmd>` 로 동일하게 실행.
+- 호출: `context-db <cmd>`. PATH에 없으면 `python <context-DB-path>/src/cli.py <cmd>` 로 동일하게 실행.
 
 ## 조회 명령 (읽기전용)
 
@@ -25,7 +27,7 @@ description: 에이전트가 흩어진 맥락(하이웍스 대화·구글독스�
 | 인물별 맥락 | `context-db by-person "<이름>" [--limit N] [--json]` |
 | 프로젝트 목록 | `context-db projects [--json]` |
 | 소스(채널/문서/파일) 목록 | `context-db sources [--project P] [--json]` |
-| 외부 링크 목록 | `context-db links [--type google_doc\|file] [--json]` |
+| 외부 링크 목록 | `context-db links [--type web_doc\|file] [--json]` |
 | 건수·무결성 요약 | `context-db stats [--json]` |
 
 ## 검색 팁 & 주의 (중요)
@@ -47,12 +49,29 @@ description: 에이전트가 흩어진 맥락(하이웍스 대화·구글독스�
 # 특정 주제의 최근 논의를 JSON으로
 context-db search "서버 권장사양" --limit 10 --json
 
-# 피지컬AI 프로젝트 타임라인
-context-db timeline --project 피지컬AI --limit 20 --json
+# 특정 프로젝트 타임라인
+context-db timeline --project 예시프로젝트 --limit 20 --json
 
 # 특정 인물이 남긴 맥락
 context-db by-person "홍길동" --limit 10 --json
 ```
+
+## 설치 & 상시 적재 (권장)
+운영자는 **한 번의 `setup` 명령**으로 이 skill을 배포하고 백그라운드 상시 적재까지 켤 수 있다.
+
+```bash
+# skill을 전역(~/.claude/skills/context-db)에 배포
+context-db setup
+
+# 특정 폴더(프로젝트 .claude/skills 등)에 배포
+context-db setup --path <프로젝트>/.claude/skills
+
+# 배포 + 백그라운드 상시 적재 등록(권장, Windows 작업 스케줄러 · 기본 10분 주기)
+context-db setup --background --interval 10
+```
+`setup` 은 skill 본문의 `<context-DB-path>` 자리표시자를 실제 저장소 경로로 치환해 배포하므로,
+PATH 미설정 환경에서도 위 폴백 명령(`python <context-DB-path>/src/cli.py`)이 그대로 동작한다.
+**상시 적재(`--background`)를 켜두면** 새 대화·문서가 자동으로 DB에 반영되어 항상 최신 맥락을 조회할 수 있다.
 
 ## 운영 명령 (참고 — 보통 자동 처리)
 | 목적 | 명령 |

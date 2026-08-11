@@ -27,19 +27,19 @@
 | Component | Status | Description | Coverage / Deferral Note |
 |-----------|--------|-------------|--------------------------|
 | Schema/DDL | active | 테이블·제약·인덱스·FTS 트리거·시드 | §4 DDL 전체 + §5 FTS 동기화 트리거 + §6 시드 |
-| Ingest (ingest.py) | active | 하이웍스 로그 파서·정규화·중복처리 | §7 파서 상세설계 (구현은 실행 단계) |
+| Ingest (ingest.py) | active | 메신저 로그 파서·정규화·중복처리 | §7 파서 상세설계 (구현은 실행 단계) |
 | Query 인터페이스 | active | 대표 쿼리·뷰(읽기 전용) | §8 쿼리/뷰. FTS 동기화는 스키마 트리거(§5) 소관 |
 | Skill 연동 | active | 스키마 요약·질의 템플릿·사용규칙 | §9 skill 설계 (구현은 실행 단계) |
 
 ## Goal
-흩어지고 휘발되는 맥락 데이터(하이웍스 채팅 로그·구글독스 문서 링크·받은파일 메타데이터)를
+흩어지고 휘발되는 맥락 데이터(메신저 채팅 로그·웹 문서 링크·받은파일 메타데이터)를
 정규화된 SQLite 관계형 스키마에 적재하고, 에이전트가 skill로 스키마를 숙지해 SQL/FTS로
 필요한 맥락만 질의·회수하는 시스템의 **상세설계**를 확정한다.
 본 요청의 산출물은 **(1) 이 상세설계서 + (2) 실행 가능한 `schema.sql`** 이다.
 
 ## Constraints (인터뷰로 확정된 결정)
-- **적재 범위**: 하이웍스 채팅 **전 채널**(사적 채널 포함) + 구글독스 문서(링크·메타) + 받은파일(메타).
-- **적재 깊이**: 구글독스/받은파일은 **링크·메타데이터만** 저장(본문 추출 없음). FTS 전문검색은 **채팅 content 중심**.
+- **적재 범위**: 메신저 채팅 **전 채널**(사적 채널 포함) + 웹 문서(링크·메타) + 받은파일(메타).
+- **적재 깊이**: 웹 문서/받은파일은 **링크·메타데이터만** 저장(본문 추출 없음). FTS 전문검색은 **채팅 content 중심**.
 - **채널→PROJECT 매핑**: 채널 폴더 = **SOURCE(messenger)** 한 개. 채널 정체성은 프로젝트와 분리(`UNIQUE(source_type,name)`). `project`는 **M:N 매핑표(`source_project`)로 수동 부여**, 기본값 `미분류`. 다주제 채널은 여러 project, 1:1/잡담은 미분류. → **[리뷰 패치] 1:N `source.project_id` → M:N `source_project`**.
 - **프라이버시**: 사내·사적 대화 포함 → **로컬 파일 저장, 외부 전송 금지**. 백업 = DB 파일 복사.
 - **무결성**: FK·UNIQUE·CHECK. SQLite FK 기본 비활성 → 커넥션마다 `PRAGMA foreign_keys=ON` 필수.
@@ -48,7 +48,7 @@
 
 ## Non-Goals (차기 분리)
 - 의미(벡터) 검색·임베딩, 웹 UI, 실시간/자동 수집·크롤링, 권한/멀티유저.
-- 구글독스 본문·PDF/문서 텍스트 추출(현재는 링크·메타만).
+- 웹 문서 본문·PDF/문서 텍스트 추출(현재는 링크·메타만).
 - `query_log`(질의 이력) — 선택 2차 기능.
 - ingest.py·skill.md 실제 구현 및 시연 — 본 요청 이후 실행 단계로 분리(설계는 §7·§9에 포함).
 
@@ -68,20 +68,20 @@
 | Assumption | Challenge | Resolution |
 |------------|-----------|------------|
 | 로그 포맷은 `[시각] 이름` 단순형 | 실물 로그 확인 필요 | 실제 포맷 확인: `[YYYY-MM-DD 오전/오후 H:MM] 이름` + 멀티라인 본문, 시스템/이모티콘/첨부 라인 존재 |
-| 적재 대상은 Physical AI 프로젝트 위주 | 실제로는 다채널 혼재 | **전 채널 + 구글독스 + 받은파일메타** 로 확정 |
+| 적재 대상은 Physical AI 프로젝트 위주 | 실제로는 다채널 혼재 | **전 채널 + 웹 문서 + 받은파일메타** 로 확정 |
 | 문서/파일 본문까지 넣어야 함 | 파서 복잡도·범위 팽창 위험 | **링크·메타데이터만**(가벼운 MVP)로 확정 |
 | PROJECT가 최상위 조직 단위 (Contrarian) | 실제 데이터는 채널 단위, 1:1은 프로젝트 없음, 다주제 채널 존재 | **채널=SOURCE**(프로젝트 무관 정체성), project는 **M:N `source_project`** 수동 매핑(기본 '미분류'). [리뷰 패치: 1:N→M:N] |
 | "상세설계"는 문서만 | 실행가능 산출물 필요 여부 | **설계서 + 실행가능 schema.sql** 로 확정 |
 
 ## Technical Context
 - 관측된 실제 데이터 구조(증거):
-  - `C:\Users\<사용자>\Documents\하이웍스 채팅저장\<채널명>\<YYYY-MM-DD>.txt`
-    - 예: `[피지컬 AI]/2026-07-28.txt`, `이순신/2026-08-03.txt`
+  - `<context-DB-path>/메신저 채팅저장/<채널명>/<YYYY-MM-DD>.txt` (현재 하이웍스 저장 포맷)
+    - 예: `[채널 A]/2026-07-28.txt`, `이순신/2026-08-03.txt`
     - 라인 헤더: `[2026-07-24 오후 2:12] 홍길동` → 다음 헤더 전까지 본문(멀티라인, 빈 줄 포함).
     - 시스템 라인: `…님이 …다운로드를 완료했습니다.`, 첨부 파일명 단독 라인, `(이모티콘)`.
     - **날짜 = 파일명**, **시각 = 헤더**(오전/오후 12시간제) → 합쳐 `event_ts`.
-  - `C:\Users\<사용자>\Documents\하이웍스 받은파일\*` (PDF/PPTX/HWP/… 바이너리) → 메타만.
-  - 공유 문서: `https://docs.google.com/document/d/<doc-id>/edit?tab=t.0` (탭별 문서) → 링크만.
+  - `<context-DB-path>/메신저 받은파일/*` (PDF/PPTX/HWP/… 바이너리) → 메타만.
+  - 웹 문서: `https://example.com/doc/<doc-id>` → 링크만.
 - DB: SQLite 3 + FTS5. 적재: Python 3 표준 `sqlite3`.
 
 ## 4. 논리 스키마 (완전 DDL — schema.sql 초안)
@@ -100,7 +100,7 @@ CREATE TABLE project (
 -- 2) SOURCE_TYPE(조회 테이블)
 CREATE TABLE source_type (
   source_type_id INTEGER PRIMARY KEY,
-  code           TEXT NOT NULL UNIQUE,   -- messenger, google_doc, web_link, paper, server_info, file, note
+  code           TEXT NOT NULL UNIQUE,   -- messenger, web_doc, web_link, paper, server_info, file, note
   label          TEXT NOT NULL
 );
 
@@ -109,7 +109,7 @@ CREATE TABLE source (
   source_id      INTEGER PRIMARY KEY,
   source_type_id INTEGER NOT NULL REFERENCES source_type(source_type_id),
   name           TEXT NOT NULL,          -- 채널명/문서명/파일저장소명
-  uri            TEXT,                   -- 폴더 절대경로/구글독스 URL/파일 경로
+  uri            TEXT,                   -- 폴더 절대경로/웹 문서 URL/파일 경로
   is_ephemeral   INTEGER NOT NULL DEFAULT 0 CHECK (is_ephemeral IN (0,1)),
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (source_type_id, name)   -- 채널 정체성(프로젝트 무관) → 재매핑해도 소스 중복 없음
@@ -207,8 +207,8 @@ END;
 INSERT INTO project (name, description) VALUES ('미분류', '프로젝트 미지정 기본 버킷');
 
 INSERT INTO source_type (code, label) VALUES
-  ('messenger',   '메신저(하이웍스)'),
-  ('google_doc',  '구글 문서'),
+  ('messenger',   '메신저'),
+  ('web_doc',     '웹 문서'),
   ('web_link',    '웹 링크'),
   ('paper',       '논문'),
   ('server_info', '서버 정보'),
@@ -219,7 +219,7 @@ INSERT INTO source_type (code, label) VALUES
 ## 7. Ingest 상세설계 (ingest.py — 실행 단계 구현 대상)
 
 ### 7.1 채팅 로그 적재
-1. 루트: `하이웍스 채팅저장/<채널>/<YYYY-MM-DD>.txt` 순회.
+1. 루트: `메신저 채팅저장/<채널>/<YYYY-MM-DD>.txt` 순회.
 2. 채널별 SOURCE 확보: `source(source_type='messenger', name=채널명, uri=폴더 절대경로, is_ephemeral=1)` — `UNIQUE(source_type,name)`로 멱등(프로젝트 무관).
 2-1. 프로젝트 매핑: 채널→project(들) 설정표를 참조해 `source_project`에 `INSERT OR IGNORE`. 매핑 없으면 **'미분류'** 1건. 다주제 채널은 project 여러 건 매핑. (프로젝트 재지정 시 소스·메시지 재적재 없이 매핑만 추가/변경)
 3. 라인 파싱 정규식:
@@ -236,10 +236,10 @@ INSERT INTO source_type (code, label) VALUES
 8. FTS는 트리거가 자동 동기화 → 별도 처리 불필요.
 9. 트랜잭션: 파일 단위 커밋, 커넥션 시작 시 `PRAGMA foreign_keys=ON`.
 
-### 7.2 구글독스/받은파일 (링크·메타만)
-- 구글독스: `source(type='google_doc', name='공유 문서', uri=문서 URL)` + `link(source_id, url=URL, title=탭명/문서명)`.
-- 받은파일: `source(type='file', name='하이웍스 받은파일', uri=폴더 경로)` + 파일별 `link(source_id, url=파일 절대경로, title=파일명, last_checked_at=수정시각)`.
-- 매니페스트: `docs/맥락 정보.md`의 경로/URL을 설정 입력으로 사용.
+### 7.2 웹 문서/받은파일 (링크·메타만)
+- 웹 문서: `source(type='web_doc', name='공유 문서', uri=문서 URL)` + `link(source_id, url=URL, title=문서명)`.
+- 받은파일: `source(type='file', name='메신저 받은파일', uri=폴더 경로)` + 파일별 `link(source_id, url=파일 절대경로, title=파일명, last_checked_at=수정시각)`.
+- 설정 입력: `context-db.config.json`의 경로/URL을 사용(과거 `docs/맥락 정보.md` 폴백은 제거됨).
 
 ## 8. 대표 질의·뷰
 
@@ -337,11 +337,11 @@ LEFT JOIN link l        ON l.context_item_id = ci.context_item_id;
 
 ### Round 2 (Ingest·Query / Constraints)
 **Q:** 적재 대상 소스 범위?
-**A:** 하이웍스 채팅 전부 + 구글독스 문서 + 받은파일 메타데이터.
+**A:** 하이웍스 채팅 전부 + 웹 문서 + 받은파일 메타데이터.
 **Ambiguity:** 38%
 
 ### Round 3 (Ingest / Context)
-**Q:** 구글독스/받은파일 적재 깊이?
+**Q:** 웹 문서/받은파일 적재 깊이?
 **A:** 링크·메타데이터만(가벼운 MVP).
 **Ambiguity:** 34%
 

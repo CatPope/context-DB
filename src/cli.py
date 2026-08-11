@@ -3,28 +3,31 @@
 """
 context-DB 통합 CLI (cli.py)
 
+설치/설정:        setup (skill 배포 + 백그라운드 상시 적재 등록)
 운영/적재(쓰기):  init, ingest, watch, set-project, tag
 조회(읽기전용):   search, timeline, by-tag, by-person, projects, sources, links, stats
 
-경로 기본값은 context-db.config.json 에서 읽고, 없으면 docs/맥락 정보.md 를 파싱한다.
+경로 기본값은 context-db.config.json 에서 읽는다(없으면 내장 기본값).
 CLI 인자가 항상 config 보다 우선한다. 조회 명령은 --json 을 지원(에이전트용).
 
 예:
+  context-db setup                      # skill을 전역(~/.claude/skills)에 배포
+  context-db setup --background         # + 상시 적재 스케줄러 등록
   context-db init
   context-db ingest
   context-db watch --interval 60
   context-db search "회의 일정" --project 2 --limit 20 --json
-  context-db timeline --channel "[피지컬 AI]" --json
-  context-db by-tag 피지컬AI --json
-  context-db set-project "[피지컬 AI]" "피지컬AI"
-  context-db tag "회의 OR 일정" --add 피지컬AI
+  context-db timeline --channel "[채널명]" --json
+  context-db by-tag 예시태그 --json
+  context-db set-project "[채널명]" "프로젝트명"
+  context-db tag "회의 OR 일정" --add 예시태그
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import re
+import subprocess
 import sys
 import time
 
@@ -38,10 +41,11 @@ except Exception:
 
 import ingest as ing  # 동일 폴더의 ingest.py 재사용
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(HERE, "context-db.config.json")
-DOCS_CONTEXT = os.path.join(HERE, "docs", "맥락 정보.md")
-DEFAULT_DB = os.path.join(HERE, "context.db")
+HERE = os.path.dirname(os.path.abspath(__file__))          # src/
+ROOT = os.path.dirname(HERE)                                # 저장소 루트
+CONFIG_PATH = os.path.join(ROOT, "context-db.config.json")
+DEFAULT_DB = os.path.join(ROOT, "context.db")
+SKILL_SRC = os.path.join(ROOT, "context-db.skill.md")      # 배포 원본 skill
 
 
 # ─────────────────────────── 설정 로딩 ───────────────────────────
@@ -50,36 +54,18 @@ def load_config() -> dict:
         "db": DEFAULT_DB,
         "chat_root": None,
         "files_root": None,
-        "gdoc": None,
-        "gdoc_title": "공유 문서",
+        "webdoc": None,
+        "webdoc_title": "공유 문서",
         "project": "미분류",
         "watch_interval": 60,
     }
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding="utf-8") as fh:
             cfg.update({k: v for k, v in json.load(fh).items() if v is not None})
-    elif os.path.exists(DOCS_CONTEXT):
-        cfg.update(_parse_docs_context())
-    # 상대 db 경로는 스크립트 폴더 기준으로 절대화(스케줄러 cwd 무관)
+    # 상대 db 경로는 저장소 루트 기준으로 절대화(스케줄러 cwd 무관)
     if cfg["db"] and not os.path.isabs(cfg["db"]):
-        cfg["db"] = os.path.join(HERE, cfg["db"])
+        cfg["db"] = os.path.join(ROOT, cfg["db"])
     return cfg
-
-
-def _parse_docs_context() -> dict:
-    """docs/맥락 정보.md 에서 경로/URL 추출(설정 파일이 없을 때 폴백)."""
-    out = {}
-    text = open(DOCS_CONTEXT, encoding="utf-8").read()
-    m = re.search(r"하이웍스 채팅.*?:\s*(.+)", text)
-    if m:
-        out["chat_root"] = m.group(1).strip()
-    m = re.search(r"하이웍스 파일.*?:\s*(.+)", text)
-    if m:
-        out["files_root"] = m.group(1).strip()
-    m = re.search(r"(https://docs\.google\.com/\S+)", text)
-    if m:
-        out["gdoc"] = m.group(1).strip()
-    return out
 
 
 def resolve(args, cfg) -> dict:
@@ -88,8 +74,8 @@ def resolve(args, cfg) -> dict:
         "db": getattr(args, "db", None) or cfg["db"],
         "chat_root": getattr(args, "chat_root", None) or cfg.get("chat_root"),
         "files_root": getattr(args, "files_root", None) or cfg.get("files_root"),
-        "gdoc": getattr(args, "gdoc", None) or cfg.get("gdoc"),
-        "gdoc_title": getattr(args, "gdoc_title", None) or cfg.get("gdoc_title", "공유 문서"),
+        "webdoc": getattr(args, "webdoc", None) or cfg.get("webdoc"),
+        "webdoc_title": getattr(args, "webdoc_title", None) or cfg.get("webdoc_title", "공유 문서"),
         "project": getattr(args, "project", None) or cfg.get("project", "미분류"),
     }
 
@@ -136,9 +122,9 @@ def _run_ingest(r) -> None:
         if r["files_root"]:
             n = ing.ingest_files_root(con, r["files_root"], r["project"])
             print(f"[받은파일] 링크 {n}건")
-        if r["gdoc"]:
-            ing.ingest_gdoc(con, r["gdoc"], r["gdoc_title"], r["project"])
-            print(f"[구글독스] 1건: {r['gdoc_title']}")
+        if r["webdoc"]:
+            ing.ingest_webdoc(con, r["webdoc"], r["webdoc_title"], r["project"])
+            print(f"[웹 문서] 1건: {r['webdoc_title']}")
         total = con.execute("SELECT count(*) FROM context_item").fetchone()[0]
         print(f"[요약] context_item {total} → {r['db']}")
     finally:
@@ -347,6 +333,67 @@ def cmd_stats(args, cfg):
         con.close()
 
 
+# ─────────────────────────── 설치/설정(setup) ───────────────────────────
+# provider → skills 루트 폴더. 현재는 Claude Code(전역 ~/.claude/skills)만 지원.
+PROVIDER_SKILL_DIRS = {
+    "claude": os.path.join(os.path.expanduser("~"), ".claude", "skills"),
+}
+
+
+def _skill_target_dir(args) -> str:
+    """skill 설치 대상 폴더(= skills 루트/context-db). --path 지정 시 해당 폴더가 루트."""
+    if getattr(args, "path", None):
+        root = os.path.abspath(os.path.expanduser(args.path))
+    else:
+        root = PROVIDER_SKILL_DIRS.get(args.provider)
+        if root is None:
+            raise SystemExit(f"[setup] 알 수 없는 provider: {args.provider} "
+                             f"(지원: {', '.join(PROVIDER_SKILL_DIRS)})")
+    return os.path.join(root, "context-db")
+
+
+def _install_skill(target_dir: str) -> str:
+    """context-db.skill.md 를 target_dir/SKILL.md 로 배포.
+    본문의 <context-DB-path> 자리표시자를 실제 저장소 경로로 치환한다."""
+    if not os.path.exists(SKILL_SRC):
+        raise SystemExit(f"[setup] skill 원본을 찾을 수 없음: {SKILL_SRC}")
+    os.makedirs(target_dir, exist_ok=True)
+    text = open(SKILL_SRC, encoding="utf-8").read().replace("<context-DB-path>", ROOT)
+    dst = os.path.join(target_dir, "SKILL.md")
+    with open(dst, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return dst
+
+
+def _register_background(interval_min: int) -> None:
+    """백그라운드 상시 적재 등록. Windows=작업 스케줄러(schtasks)."""
+    bat = os.path.join(ROOT, "context-db.bat")
+    if os.name == "nt" and os.path.exists(bat):
+        cmd = ["schtasks", "/Create", "/TN", "context-db-ingest",
+               "/TR", f'"{bat}" ingest', "/SC", "MINUTE", "/MO", str(interval_min), "/F"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode == 0:
+            print(f"[setup] 상시 적재 등록 완료: {interval_min}분 주기 (작업명 context-db-ingest)")
+            print("        즉시 실행: schtasks /Run /TN context-db-ingest")
+            print("        해제     : schtasks /Delete /TN context-db-ingest /F")
+        else:
+            print("[setup] 스케줄러 등록 실패(관리자 권한이 필요할 수 있음):")
+            print("        " + (r.stderr or r.stdout).strip())
+    else:
+        print("[setup] 이 플랫폼에서는 자동 등록을 지원하지 않습니다.")
+        print("        대신 별도 창에서 `context-db watch --interval 60` 을 실행하세요.")
+
+
+def cmd_setup(args, cfg):
+    dst = _install_skill(_skill_target_dir(args))
+    print(f"[setup] skill 배포 완료 → {dst}")
+    print(f"        (자리표시자 <context-DB-path> → {ROOT} 치환)")
+    if args.background:
+        _register_background(args.interval or 10)
+    else:
+        print("[setup] 상시 적재까지 켜려면: context-db setup --background [--interval 분]")
+
+
 # ─────────────────────────── 파서 구성 ───────────────────────────
 def build_parser():
     p = argparse.ArgumentParser(prog="context-db", description="context-DB CLI")
@@ -355,8 +402,18 @@ def build_parser():
 
     def add_roots(sp):
         sp.add_argument("--chat-root"); sp.add_argument("--files-root")
-        sp.add_argument("--gdoc"); sp.add_argument("--gdoc-title")
+        sp.add_argument("--webdoc"); sp.add_argument("--webdoc-title")
         sp.add_argument("--project")
+
+    sp = sub.add_parser("setup", help="skill 배포 + (선택) 상시 적재 등록")
+    sp.add_argument("--provider", default="claude",
+                    help="skill 제공자(기본 claude → 전역 ~/.claude/skills)")
+    sp.add_argument("--path", default=None,
+                    help="skill을 설치할 skills 루트 폴더(예: <프로젝트>/.claude/skills)")
+    sp.add_argument("--background", action="store_true",
+                    help="백그라운드 상시 적재를 작업 스케줄러에 등록")
+    sp.add_argument("--interval", type=int, default=None, help="상시 적재 주기(분, 기본 10)")
+    sp.set_defaults(func=cmd_setup)
 
     sub.add_parser("init").set_defaults(func=cmd_init)
 

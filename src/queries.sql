@@ -69,7 +69,7 @@ SELECT * FROM v_recent_context LIMIT :n;
 SELECT * FROM v_tag_links WHERE tag = :tag;
 
 -- ─────────────────────────────────────────────────────────────
--- 참고: 외부 링크(구글독스/받은파일) 목록
+-- 참고: 외부 링크(웹 문서/받은파일) 목록
 -- ─────────────────────────────────────────────────────────────
 SELECT st.label AS type, s.name AS source, l.title, l.url
 FROM link l

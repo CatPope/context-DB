@@ -1,9 +1,9 @@
 {
   "db": "context.db",
-  "chat_root": "C:/Users/<you>/Documents/하이웍스 채팅저장",
-  "files_root": "C:/Users/<you>/Documents/하이웍스 받은파일",
-  "gdoc": "https://docs.google.com/document/d/<doc-id>/edit",
-  "gdoc_title": "공유 문서",
+  "chat_root": "<context-DB-path>/메신저 채팅저장",
+  "files_root": "<context-DB-path>/메신저 받은파일",
+  "webdoc": "https://example.com/doc/<doc-id>",
+  "webdoc_title": "공유 문서",
   "project": "미분류",
   "watch_interval": 60
 }
