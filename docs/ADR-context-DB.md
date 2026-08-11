@@ -20,7 +20,7 @@
 (메신저 적재는 현재 하이웍스 채팅 저장 포맷만 지원.)
 
 **현재 상태 스냅샷 (2026-08-11)**
-- Git: `main` 브랜치, 원격 `origin`=`github.com/CatPope/context-DB`. `196d57e`(MVP, 민감내용 스크럽본) 위에 재구성·용어·`setup` 변경 커밋.
+- Git: `main` 브랜치, 원격 `origin`=`github.com/CatPope/context-DB` **동기화됨**(HEAD=`a2e016c` 병합 커밋). `196d57e`(MVP 스크럽본) → 로컬 재구성·용어·`setup`(`bc4fe16`)과 원격 직접 커밋(설계서 리네임·`맥락 정보.md` 삭제 등)을 병합.
 - 구조: 소스는 **`src/`** 로 이동(`cli.py`/`ingest.py`/`schema.sql`/`queries.sql`). 진입점 `context-db.bat` → `src\cli.py`.
 - 구현: `src/*`·`context-db.bat`·스케줄러 배치·`skill`·테스트 완비. **`context-db setup`** 으로 skill 배포 + 상시 적재 등록 일원화.
 - 실 DB: `context.db` = context_item 611 · source 21 · person 16 · link 179 · `fts_in_sync=True` · `orphan=0` (용어 마이그레이션 반영: `web_doc`/`메신저`).
@@ -29,7 +29,8 @@
 
 **변경 이력(작업 기록)**
 - 2026-08-10: MVP 구현(스키마·적재·CLI·skill·테스트) + 민감내용 스크럽 후 첫 커밋(`196d57e`).
-- 2026-08-11: 소스 `src/` 재구성 · `맥락 정보.md` 폴백 파싱 제거 · `context-db setup` 명령 추가(제공자·경로·`--background`) · 용어 일반화(메신저/웹 문서/`<context-DB-path>`, "현재 하이웍스만 지원" 안내) · 실 DB 용어 마이그레이션 · 테스트 40/40.
+- 2026-08-11: 소스 `src/` 재구성 · `맥락 정보.md` 폴백 파싱 제거 · `context-db setup` 명령 추가(제공자·경로·`--background`) · 용어 일반화(메신저/웹 문서/`<context-DB-path>`, "현재 하이웍스만 지원" 안내) · 실 DB 용어 마이그레이션 · 테스트 40/40. (`bc4fe16`)
+- 2026-08-11(병합): 원격 직접 커밋과 분기 발생 → `a2e016c` 로 병합. **`src/` 레이아웃 유지**(사용자 결정), 원격 결정 수용(상세설계서 → `docs/context-db-상세설계서.md`, `docs/맥락 정보.md` 삭제), 용어는 완전본(`web_doc`) 채택. 리네임 참조 일괄 갱신 후 push 완료.
 
 ## 2. 파일 맵
 
@@ -207,6 +208,6 @@ python src/cli.py ingest                   # 멱등 재적재(신규 0 기대)
 
 ## 10. 관련 문서
 - 요구/설계: `docs/과제제안서.md`, `docs/상위설계서.md`, `docs/context-db-상세설계서.md`
-- 맥락 출처(개발용 참고자료, 적재 대상 아님): `docs/맥락 정보.md`
+- 맥락 출처: 개발용 참고자료였던 `docs/맥락 정보.md` 는 삭제됨(적재 대상 아님, 폴백 파싱도 제거). 설정은 `context-db.config.json` 단일 소스.
 - 비교/테스트: `docs/DB기반_vs_CLI기반_비교보고서.md`, `docs/테스트보고서.md`
 - 사용/연동: `README.md`, `context-db.skill.md`
