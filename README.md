@@ -7,7 +7,7 @@
 > **메신저 적재는 현재 하이웍스 채팅 저장 포맷만 지원**한다(다른 메신저는 추후 확장).
 > 아래 `<context-DB-path>` 는 이 저장소를 클론한 실제 경로로 바꿔 읽는다.
 
-- 상세설계: `docs/deep-interview-context-db-detailed-design.md`
+- 상세설계: `docs/context-db-상세설계서.md`
 - 소스: `src/schema.sql` · 적재 `src/ingest.py` · CLI `src/cli.py` · 질의 모음 `src/queries.sql`
 - 에이전트 연동: `context-db.skill.md`
 

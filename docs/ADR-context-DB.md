@@ -48,7 +48,7 @@
 | `README.md` | 사용법 | ✅ |
 | `tests/test_context_db.py` | 결정적 테스트 스위트(40 케이스) | ✅ |
 | `docs/*.md` | 제안서·상위설계서·상세설계·비교보고서·테스트보고서·본 ADR | ✅ |
-| `docs/deep-interview-context-db-detailed-design.md` | 상세설계 spec(커밋본; `.omc/specs/` 사본은 gitignore) | ✅ |
+| `docs/context-db-상세설계서.md` | 상세설계 spec(커밋본; `.omc/specs/` 사본은 gitignore) | ✅ |
 
 ## 3. 아키텍처 결정 기록 (ADR)
 
@@ -138,7 +138,7 @@
 `context_item`↔`tag`(**M:N** via `context_item_tag`), `link`(context_item/source에 귀속), `context_fts`(FTS5).
 - 자연키: `source(source_type_id, name)`, `context_item(source_id, external_id)`, `person(display_name)`, `tag(name)`.
 - 파서 규칙: 헤더 `[YYYY-MM-DD 오전/오후 H:MM] 이름`, 이후 다음 헤더 전까지 멀티라인 본문. 날짜=파일명·시각=헤더. item_type ∈ {message, system, file, note, excerpt}.
-- 전체 DDL·근거: `docs/deep-interview-context-db-detailed-design.md` §4~7.
+- 전체 DDL·근거: `docs/context-db-상세설계서.md` §4~7.
 
 ## 5. 운영 방법 (빠른 시작)
 ```bash
@@ -206,7 +206,7 @@ python src/cli.py ingest                   # 멱등 재적재(신규 0 기대)
 ```
 
 ## 10. 관련 문서
-- 요구/설계: `docs/과제제안서.md`, `docs/상위설계서.md`, `docs/deep-interview-context-db-detailed-design.md`
+- 요구/설계: `docs/과제제안서.md`, `docs/상위설계서.md`, `docs/context-db-상세설계서.md`
 - 맥락 출처(개발용 참고자료, 적재 대상 아님): `docs/맥락 정보.md`
 - 비교/테스트: `docs/DB기반_vs_CLI기반_비교보고서.md`, `docs/테스트보고서.md`
 - 사용/연동: `README.md`, `context-db.skill.md`

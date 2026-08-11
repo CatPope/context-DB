@@ -5,7 +5,7 @@
 | 문서 종류 | 기술 비교 보고서 |
 | 작성일자 | 2026-08-10 |
 | 대상 | context-DB(SQLite + FTS5)에서 맥락을 회수하는 두 방식 |
-| 관련 문서 | `상위설계서.md`, `.omc/specs/deep-interview-context-db-detailed-design.md`, `context-db.skill.md` |
+| 관련 문서 | `상위설계서.md`, `docs/context-db-상세설계서.md`, `context-db.skill.md` |
 
 > **정의**
 > - **DB 기반(직접 접근)**: 클라이언트(에이전트/사람)가 `sqlite3`로 `context.db`에 **직접 SQL**을 실행한다. 스키마·FTS 문법을 직접 다룬다.
