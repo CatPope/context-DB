@@ -1,0 +1,8 @@
+# POSIX 셸 스크립트는 반드시 LF 로 유지한다.
+# CRLF 가 섞이면 `#!/usr/bin/env sh` 가 캐리지리턴까지 인터프리터 이름으로 읽어
+# "bad interpreter: /usr/bin/env sh^M" 로 실행이 실패한다.
+context-db text eol=lf
+*.sh        text eol=lf
+
+# Windows 배치는 반대로 CRLF 를 유지한다.
+*.bat       text eol=crlf

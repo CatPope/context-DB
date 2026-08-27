@@ -322,6 +322,34 @@ def main():
     r2 = run("by-tag", "인사", "--json")
     check("tag→by-tag 왕복", ok_json(r2) and len(json.loads(r2.stdout)) >= 1, r2.stdout[:120])
 
+    print("== 15. 이식성: 진입점 + 플랫폼별 상시 적재 계획 ==")
+    sys.path.insert(0, SRC)
+    import cli as climod  # noqa: E402
+
+    posix_entry = os.path.join(ROOT, "context-db")
+    check("POSIX 진입점 존재", os.path.exists(posix_entry))
+    if os.path.exists(posix_entry):
+        body = open(posix_entry, encoding="utf-8").read()
+        check("POSIX 진입점이 src/cli.py 를 호출", "src/cli.py" in body and body.startswith("#!"))
+        check("POSIX 진입점이 python3 → python 폴백",
+              "command -v python3" in body and "command -v python " in body)
+
+    win = climod.background_plan("nt", 10, root=r"C:\repo")
+    check("nt → schtasks", win["kind"] == "schtasks" and "context-db.bat" in win["entry"], win)
+
+    lin = climod.background_plan("linux", 7, root="/opt/repo")
+    check("linux → crontab 라인(주기 반영)",
+          lin["kind"] == "cron" and lin["entry"].startswith("*/7 * * * *")
+          and "/opt/repo" in lin["entry"] and "ingest" in lin["entry"], lin["entry"])
+
+    mac = climod.background_plan("darwin", 10, root="/opt/repo")
+    check("darwin → LaunchAgent plist(분→초 변환)",
+          mac["kind"] == "launchd" and "<integer>600</integer>" in mac["entry"]
+          and mac["artifact_path"].endswith(".plist") and "launchctl load" in mac["activate"],
+          mac["entry"][:120])
+    check("전 플랫폼 해제 명령 제공",
+          all(p["deactivate"] for p in (win, lin, mac)))
+
     print(f"\n결과: PASS={PASS}  FAIL={FAIL}")
     sys.exit(1 if FAIL else 0)
 

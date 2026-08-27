@@ -418,23 +418,107 @@ def _install_skill(target_dir: str) -> str:
     return dst
 
 
+SCHED_TASK_NAME = "context-db-ingest"
+
+
+def background_plan(platform: str, interval_min: int, root: str = None) -> dict:
+    """플랫폼별 상시 적재 등록 방법을 계산한다(부수효과 없음).
+
+    실행에서 분리한 이유: Windows 에서 macOS/Linux 경로를 테스트할 수 있어야 하고,
+    launchctl/crontab 을 검증 없이 자동 실행하는 것보다 정확한 명령을 제시하는 편이 낫다.
+
+    returns: {kind, entry, activate, deactivate, note, artifact_path?}
+      kind: 'schtasks' | 'cron' | 'launchd' | 'unsupported'
+      entry: 등록 대상 문자열(작업 정의 / crontab 라인 / plist 본문)
+    """
+    root = root or ROOT
+    if platform == "nt":
+        launcher = os.path.join(root, "context-db.bat")
+        return {
+            "kind": "schtasks",
+            "entry": f'"{launcher}" ingest',
+            "activate": None,   # 직접 실행한다
+            "deactivate": f"schtasks /Delete /TN {SCHED_TASK_NAME} /F",
+            "note": f"즉시 실행: schtasks /Run /TN {SCHED_TASK_NAME}",
+        }
+
+    launcher = os.path.join(root, "context-db")
+    if platform == "darwin":
+        label = "com.contextdb.ingest"
+        plist = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0">\n'
+            '<dict>\n'
+            f'  <key>Label</key><string>{label}</string>\n'
+            '  <key>ProgramArguments</key>\n'
+            f'  <array><string>{launcher}</string><string>ingest</string></array>\n'
+            f'  <key>StartInterval</key><integer>{interval_min * 60}</integer>\n'
+            '  <key>RunAtLoad</key><true/>\n'
+            '</dict>\n'
+            '</plist>\n'
+        )
+        path = os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", f"{label}.plist")
+        return {
+            "kind": "launchd",
+            "entry": plist,
+            "artifact_path": path,
+            "activate": f"launchctl load -w {path}",
+            "deactivate": f"launchctl unload -w {path}",
+            "note": f"{interval_min}분({interval_min * 60}초) 주기로 실행됩니다.",
+        }
+
+    # linux 및 기타 POSIX
+    line = f"*/{interval_min} * * * * {launcher} ingest  # {SCHED_TASK_NAME}"
+    return {
+        "kind": "cron",
+        "entry": line,
+        "activate": "(crontab -l 2>/dev/null; echo '<위 줄>') | crontab -",
+        "deactivate": f"crontab -l | grep -v '{SCHED_TASK_NAME}' | crontab -",
+        "note": "crontab -e 로 직접 붙여넣어도 됩니다.",
+    }
+
+
 def _register_background(interval_min: int) -> None:
-    """백그라운드 상시 적재 등록. Windows=작업 스케줄러(schtasks)."""
-    bat = os.path.join(ROOT, "context-db.bat")
-    if os.name == "nt" and os.path.exists(bat):
-        cmd = ["schtasks", "/Create", "/TN", "context-db-ingest",
-               "/TR", f'"{bat}" ingest', "/SC", "MINUTE", "/MO", str(interval_min), "/F"]
+    """백그라운드 상시 적재 등록. Windows 는 직접 등록, POSIX 는 생성물 + 활성화 명령 안내."""
+    platform = "nt" if os.name == "nt" else sys.platform
+    plan = background_plan(platform, interval_min)
+
+    if plan["kind"] == "schtasks":
+        if not os.path.exists(os.path.join(ROOT, "context-db.bat")):
+            print("[setup] context-db.bat 을 찾을 수 없어 등록을 건너뜁니다.")
+            return
+        cmd = ["schtasks", "/Create", "/TN", SCHED_TASK_NAME,
+               "/TR", plan["entry"], "/SC", "MINUTE", "/MO", str(interval_min), "/F"]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
-            print(f"[setup] 상시 적재 등록 완료: {interval_min}분 주기 (작업명 context-db-ingest)")
-            print("        즉시 실행: schtasks /Run /TN context-db-ingest")
-            print("        해제     : schtasks /Delete /TN context-db-ingest /F")
+            print(f"[setup] 상시 적재 등록 완료: {interval_min}분 주기 (작업명 {SCHED_TASK_NAME})")
+            print(f"        {plan['note']}")
+            print(f"        해제     : {plan['deactivate']}")
         else:
             print("[setup] 스케줄러 등록 실패(관리자 권한이 필요할 수 있음):")
             print("        " + (r.stderr or r.stdout).strip())
+        return
+
+    # POSIX: 생성물을 만들거나 보여주고, 활성화는 사용자가 실행한다.
+    if plan["kind"] == "launchd":
+        path = plan["artifact_path"]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(plan["entry"])
+        print(f"[setup] LaunchAgent 생성 완료 → {path}")
+        print(f"        {plan['note']}")
+        print(f"        활성화: {plan['activate']}")
+        print(f"        해제  : {plan['deactivate']}")
     else:
-        print("[setup] 이 플랫폼에서는 자동 등록을 지원하지 않습니다.")
-        print("        대신 별도 창에서 `context-db watch --interval 60` 을 실행하세요.")
+        print(f"[setup] crontab 에 아래 한 줄을 추가하면 {interval_min}분 주기로 적재됩니다:")
+        print()
+        print(f"    {plan['entry']}")
+        print()
+        print(f"        {plan['note']}")
+        print(f"        해제  : {plan['deactivate']}")
+    print(f"        (실행 권한이 없다면: chmod +x {os.path.join(ROOT, 'context-db')})")
 
 
 def cmd_setup(args, cfg):

@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# context-DB CLI wrapper (POSIX). Calls src/cli.py next to this script.
+# Windows equivalent: context-db.bat
+#
+# Make executable and put this folder on PATH to use `context-db <command>` anywhere:
+#   chmod +x context-db
+#   export PATH="$PATH:$(pwd)"
+set -e
+
+# Resolve this script's directory, following symlinks (so a PATH symlink works).
+src="$0"
+while [ -L "$src" ]; do
+  dir=$(cd -P "$(dirname "$src")" && pwd)
+  src=$(readlink "$src")
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+HERE=$(cd -P "$(dirname "$src")" && pwd)
+
+# FTS5 must be present in Python's bundled sqlite3; a standalone sqlite3 CLI often lacks it.
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$HERE/src/cli.py" "$@"
+elif command -v python >/dev/null 2>&1; then
+  exec python "$HERE/src/cli.py" "$@"
+else
+  echo "context-db: python3 (or python) not found on PATH" >&2
+  exit 127
+fi
