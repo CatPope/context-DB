@@ -3,6 +3,9 @@ context.db
 context.db-wal
 context.db-shm
 *.db
+# DB 백업본(스키마 재구축 전 사본 등). 확장자가 .db 가 아니라 위 패턴에 걸리지 않는다.
+*.bak
+*.db.*
 
 # 로컬 설정(사설 경로 포함) — 예시는 context-db.config.example.json 커밋
 context-db.config.json
