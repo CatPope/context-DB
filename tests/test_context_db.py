@@ -207,6 +207,15 @@ def main():
                       (sid,)))
     check("CHECK link 귀속 없음 거부",
           expect_fail(con, "INSERT INTO link(url) VALUES ('http://x')"))
+    # link 중복 제거가 Python(IFNULL 흉내)이 아니라 DB 제약으로 강제되는가
+    lcid = con.execute("SELECT context_item_id FROM context_item LIMIT 1").fetchone()[0]
+    con.execute("INSERT INTO link(context_item_id,url) VALUES (?,'http://dup')", (lcid,))
+    con.commit()
+    check("부분 UNIQUE: 같은 (context_item_id,url) 재삽입 거부",
+          expect_fail(con, "INSERT INTO link(context_item_id,url) VALUES (?,'http://dup')", (lcid,)))
+    check("배타적 아크: 양쪽 동시 부착 거부",
+          expect_fail(con, "INSERT INTO link(context_item_id,source_id,url) "
+                           "VALUES (?,?,'http://both')", (lcid, sid)))
     check("CHECK is_ephemeral 거부",
           expect_fail(con, "INSERT INTO source(project_id,source_type_id,name,is_ephemeral) "
                            "VALUES (1,1,'ck채널',5)"))

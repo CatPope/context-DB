@@ -107,19 +107,29 @@ def upsert_person(con, display_name: str):
 
 def add_link_once(con, url: str, title: str, source_id=None, context_item_id=None,
                   last_checked_at=None):
-    """(source_id/context_item_id, url) 중복 없으면 삽입 → 멱등."""
-    existing = con.execute(
-        "SELECT 1 FROM link WHERE url=? AND IFNULL(source_id,-1)=IFNULL(?,-1) "
-        "AND IFNULL(context_item_id,-1)=IFNULL(?,-1)",
-        (url, source_id, context_item_id),
-    ).fetchone()
-    if existing:
-        return
-    con.execute(
-        "INSERT INTO link(context_item_id, source_id, url, title, last_checked_at) "
-        "VALUES (?,?,?,?,?)",
-        (context_item_id, source_id, url, title, last_checked_at),
-    )
+    """(부착 대상, url) 중복 없으면 삽입 → 멱등.
+
+    중복 판정은 schema.sql 의 부분 유니크 인덱스(ux_link_item / ux_link_source)가 한다.
+    한 statement 는 충돌 대상을 하나만 지정할 수 있으므로 아크별로 분기한다.
+    OR IGNORE 를 쓰지 않는 이유는 그것이 배타적 아크 CHECK 위반까지 삼키기 때문이다.
+    """
+    if (context_item_id is None) == (source_id is None):
+        raise ValueError("link 는 context_item_id 또는 source_id 중 정확히 하나에 부착해야 합니다")
+    # 부분 인덱스를 conflict target 으로 지정하려면 인덱스의 WHERE 절까지 같이 적어야
+    # SQLite 가 매칭한다(생략하면 OperationalError: ... does not match any ... UNIQUE constraint).
+    params = (context_item_id, source_id, url, title, last_checked_at)
+    if context_item_id is not None:
+        con.execute(
+            "INSERT INTO link(context_item_id, source_id, url, title, last_checked_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(context_item_id, url) WHERE context_item_id IS NOT NULL "
+            "DO NOTHING", params)
+    else:
+        con.execute(
+            "INSERT INTO link(context_item_id, source_id, url, title, last_checked_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(source_id, url) WHERE source_id IS NOT NULL "
+            "DO NOTHING", params)
 
 
 # ─────────────────────────── 파서 ───────────────────────────

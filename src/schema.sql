@@ -90,10 +90,19 @@ CREATE TABLE IF NOT EXISTS link (
   url             TEXT NOT NULL,         -- URL 또는 파일 절대경로
   title           TEXT,
   last_checked_at DATETIME,
-  CHECK (context_item_id IS NOT NULL OR source_id IS NOT NULL)
+  -- 배타적 아크: 맥락 항목 또는 소스 중 정확히 한쪽에만 부착된다.
+  -- (기존의 OR 조건은 양쪽 동시 부착을 허용했으나 그런 호출부는 없었다)
+  CHECK ((context_item_id IS NULL) <> (source_id IS NULL))
 );
 CREATE INDEX IF NOT EXISTS ix_link_item   ON link(context_item_id);
 CREATE INDEX IF NOT EXISTS ix_link_source ON link(source_id);
+
+-- 아크별 부분 유니크 인덱스. 배타적 아크는 단일 UNIQUE 로 표현할 수 없어
+-- 그동안 Python 에서 IFNULL(...,-1) 로 흉내내던 것을 DB 제약으로 되돌린다.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_link_item
+  ON link(context_item_id, url) WHERE context_item_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_link_source
+  ON link(source_id, url)       WHERE source_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────
 -- 7) TAG / 8) CONTEXT_ITEM_TAG : 태그 M:N
@@ -180,4 +189,4 @@ INSERT OR IGNORE INTO source_type (code, label) VALUES
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;

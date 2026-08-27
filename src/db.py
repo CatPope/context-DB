@@ -19,7 +19,7 @@ DEFAULT_DB = os.path.join(ROOT_DIR, "context.db")
 
 # schema.sql 의 `PRAGMA user_version` 값과 반드시 일치해야 한다.
 # 스키마를 구조적으로 바꿀 때마다 양쪽을 함께 올린다.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # 버전 도입 이전(user_version=0)에 만들어진 DB를 현행으로 인정하는 값.
 # SCHEMA_VERSION 이 1을 넘어가는 순간 이 경로는 자동으로 닫히고,
