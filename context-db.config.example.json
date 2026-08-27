@@ -4,6 +4,12 @@
   "files_root": "<context-DB-path>/메신저 받은파일",
   "webdoc": "https://example.com/doc/<doc-id>",
   "webdoc_title": "공유 문서",
+
+  "_project_rules 설명": "소스명에 match 문자열이 들어가면 그 프로젝트로 자동 배정한다. 위에서부터 먼저 맞는 규칙이 이기므로 더 구체적인 규칙을 앞에 둔다. glob 이 아니라 부분 문자열이다 — 채널명의 대괄호가 glob 문자 클래스로 해석되면 조용히 아무것도 매칭하지 않기 때문. 규칙은 신규 소스에만 적용되며, 이미 등록된 소스는 set-project 로 교정한다. 무엇이 잡히는지 미리 보려면: context-db rules",
+  "project_rules": [
+    { "match": "피지컬", "project": "피지컬AI" }
+  ],
+
   "project": "미분류",
   "watch_interval": 60
 }

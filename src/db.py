@@ -115,6 +115,30 @@ def resolve_path(value: str, cfg: dict) -> str:
     return value
 
 
+# ─────────────────────────── 프로젝트 규칙 ───────────────────────────
+def resolve_project(name: str, rules, default: str = DEFAULT_PROJECT) -> str:
+    """소스 이름으로 프로젝트를 정한다. 규칙은 **순서대로, 먼저 맞는 것이 이긴다**.
+
+    매칭은 대소문자 무시 **부분 문자열**이다. glob 을 쓰지 않는 이유가 있다:
+    채널명에 대괄호가 실제로 들어가는데(`[피지컬 AI]`), fnmatch 는 `[...]` 를 문자
+    클래스로 해석해서 `"[피지컬 AI]*"` 같은 패턴이 **아무것도 매칭하지 않는다**.
+    게다가 조용히 실패한다 — 이 기능이 고치려는 버그와 정확히 같은 실패 형태다.
+
+    rules: [{"match": "피지컬", "project": "피지컬AI"}, ...]
+    """
+    if not name or not rules:
+        return default
+    low = name.lower()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        needle = (rule.get("match") or "").strip()
+        project = (rule.get("project") or "").strip()
+        if needle and project and needle.lower() in low:
+            return project
+    return default
+
+
 def _apply_schema(con: sqlite3.Connection, schema_path: str) -> None:
     with open(schema_path, encoding="utf-8") as fh:
         con.executescript(fh.read())

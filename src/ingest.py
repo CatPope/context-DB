@@ -43,6 +43,7 @@ from db import (  # noqa: F401
     connect,
     pack_path,
     resolve_path,
+    resolve_project,
 )
 
 # 콘솔 인코딩(Windows cp949) 문제 방지
@@ -193,7 +194,9 @@ def _finalize(cur: dict):
 
 
 # ─────────────────────────── 적재 루틴 ───────────────────────────
-def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
+def ingest_chat_root(con, chat_root: str, project_name: str, rules=None) -> dict:
+    """rules 는 신규 소스에만 적용된다 — upsert_source 가 기존 소스의 project 를
+    건드리지 않으므로(ADR-002), 수동 재매핑이 다음 적재 때 되돌아가지 않는다."""
     stats = {"channels": 0, "files": 0, "inserted": 0, "skipped": 0}
     if not os.path.isdir(chat_root):
         print(f"[경고] 채팅 루트 없음: {chat_root}")
@@ -208,8 +211,9 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
         if not txts:
             continue
         stats["channels"] += 1
+        proj = resolve_project(channel, rules, project_name)
         src_id = upsert_source(con, SourceType.MESSENGER, channel,
-                               pack_path(cdir, roots), project_name)
+                               pack_path(cdir, roots), proj)
         for txt in txts:
             fpath = os.path.join(cdir, txt)
             stats["files"] += 1
@@ -236,12 +240,13 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
     return stats
 
 
-def ingest_files_root(con, files_root: str, project_name: str) -> int:
+def ingest_files_root(con, files_root: str, project_name: str, rules=None) -> int:
     if not files_root or not os.path.isdir(files_root):
         return 0
     roots = {"files_root": files_root}
-    src_id = upsert_source(con, SourceType.FILE, "메신저 받은파일",
-                           pack_path(files_root, roots), project_name)
+    name = "메신저 받은파일"
+    src_id = upsert_source(con, SourceType.FILE, name, pack_path(files_root, roots),
+                           resolve_project(name, rules, project_name))
     n = 0
     for entry in os.scandir(files_root):
         if entry.is_file():
@@ -253,10 +258,12 @@ def ingest_files_root(con, files_root: str, project_name: str) -> int:
     return n
 
 
-def ingest_webdoc(con, url: str, title: str, project_name: str) -> None:
+def ingest_webdoc(con, url: str, title: str, project_name: str, rules=None) -> None:
     if not url:
         return
-    src_id = upsert_source(con, SourceType.WEB_DOC, title or "공유 문서", url, project_name)
+    name = title or "공유 문서"
+    src_id = upsert_source(con, SourceType.WEB_DOC, name, url,
+                           resolve_project(name, rules, project_name))
     add_link_once(con, url=url, title=title or "공유 문서", source_id=src_id)
     con.commit()
 

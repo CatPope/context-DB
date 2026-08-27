@@ -318,6 +318,22 @@ def main():
     check("rename-project 병합 반영",
           any(x["name"] == "메신저 받은파일" and x["project"] == "테스트프로젝트" for x in src)
           and not any(x["name"] == "파일프로젝트-수정" for x in proj), r.stdout[:200] + r2.stdout[:200])
+    # --match 일괄 재매핑: dry-run 은 바꾸지 않고, 실제 실행은 바꾼다
+    run("set-project", CHANNEL, "일괄대상")
+    rd = run("set-project", "테스트", "일괄결과", "--match", "--dry-run")
+    r = run("sources", "--json")
+    src = json.loads(r.stdout) if ok_json(r) else []
+    check("set-project --match --dry-run 은 변경하지 않음",
+          rd.returncode == 0 and any(x["name"] == CHANNEL and x["project"] == "일괄대상" for x in src),
+          rd.stdout[:160])
+    run("set-project", "테스트", "일괄결과", "--match")
+    r = run("sources", "--json")
+    src = json.loads(r.stdout) if ok_json(r) else []
+    check("set-project --match 일괄 재매핑 반영",
+          any(x["name"] == CHANNEL and x["project"] == "일괄결과" for x in src), r.stdout[:200])
+    r = run("rules", "--json")
+    check("rules --json (rc=0, 유효)", ok_json(r), f"rc={r.returncode} {r.stderr[:80]}")
+
     r = run("tag", "여러", "--add", "인사")
     r2 = run("by-tag", "인사", "--json")
     check("tag→by-tag 왕복", ok_json(r2) and len(json.loads(r2.stdout)) >= 1, r2.stdout[:120])
@@ -377,6 +393,48 @@ def main():
           mac["entry"][:120])
     check("전 플랫폼 해제 명령 제공",
           all(p["deactivate"] for p in (win, lin, mac)))
+
+    print("== 15d. 프로젝트 자동 배정 규칙 ==")
+    RULES = [{"match": "피지컬", "project": "피지컬AI"},
+             {"match": "블록체인", "project": "블록체인"}]
+    check("부분 문자열 매칭 — 대괄호 채널명도 잡힌다",
+          dbmod.resolve_project("[피지컬 AI] 작업 채팅", RULES, "미분류") == "피지컬AI")
+    check("대괄호 없는 이름도 같은 규칙으로 잡힌다",
+          dbmod.resolve_project("공유 문서(피지컬AI)", RULES, "미분류") == "피지컬AI")
+    check("먼저 맞는 규칙이 이긴다(순서 의존)",
+          dbmod.resolve_project("피지컬 블록체인", RULES, "미분류") == "피지컬AI")
+    check("미매칭이면 기본값", dbmod.resolve_project("김철수", RULES, "미분류") == "미분류")
+    check("규칙 없으면 기본값", dbmod.resolve_project("[피지컬 AI]", [], "미분류") == "미분류")
+    check("빈 match/project 규칙은 무시(조용히 오배정하지 않음)",
+          dbmod.resolve_project("[피지컬 AI]", [{"match": "", "project": "X"},
+                                                {"match": "피지컬", "project": ""}], "미분류") == "미분류")
+    # glob 이었다면 대괄호가 문자 클래스로 해석돼 아무것도 매칭하지 않는다.
+    # 이 기능이 고치려는 버그와 같은 '조용한 실패'라서 부분 문자열을 택했다.
+    from fnmatch import fnmatch as _fn
+    check("회귀: glob 이면 대괄호 채널명이 미매칭이었을 것",
+          _fn("[피지컬 AI] 작업 채팅", "[피지컬 AI]*") is False)
+
+    # RC-2 보호: 규칙은 신규 소스에만. 기존 소스의 project 를 덮어쓰면 수동 재매핑이 되돌아간다.
+    rsrc = os.path.join(tmp, "rulechat", "규칙채널")
+    os.makedirs(rsrc)
+    with open(os.path.join(rsrc, "2026-08-01.txt"), "w", encoding="utf-8") as fh:
+        fh.write("[2026-08-01 오전 9:00] 홍길동\n규칙 테스트\n")
+    rcon = ing.connect(os.path.join(tmp, "rules.db"), ing.DEFAULT_SCHEMA)
+    rroot = os.path.join(tmp, "rulechat")
+    ing.ingest_chat_root(rcon, rroot, "미분류", [{"match": "규칙", "project": "규칙프로젝트"}])
+    got = rcon.execute("SELECT p.name FROM source s JOIN project p USING(project_id) "
+                       "WHERE s.name='규칙채널'").fetchone()[0]
+    check("규칙이 신규 소스에 적용됨", got == "규칙프로젝트", got)
+    # 사람이 손으로 다른 프로젝트로 옮긴 뒤 재적재 → 규칙이 덮어쓰면 안 된다
+    rcon.execute("INSERT OR IGNORE INTO project(name) VALUES ('수동배정')")
+    mp = rcon.execute("SELECT project_id FROM project WHERE name='수동배정'").fetchone()[0]
+    rcon.execute("UPDATE source SET project_id=? WHERE name='규칙채널'", (mp,))
+    rcon.commit()
+    ing.ingest_chat_root(rcon, rroot, "미분류", [{"match": "규칙", "project": "규칙프로젝트"}])
+    after = rcon.execute("SELECT p.name FROM source s JOIN project p USING(project_id) "
+                         "WHERE s.name='규칙채널'").fetchone()[0]
+    check("RC-2: 재적재해도 수동 배정이 되돌아가지 않음", after == "수동배정", after)
+    rcon.close()
 
     print("== 15c. 실패 경로: 낡은 스키마 · 잘못 배치된 래퍼 ==")
     # 낡은 스키마 DB 는 트레이스백이 아니라 읽을 수 있는 메시지 + rc=1 로 끝나야 한다.

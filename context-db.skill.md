@@ -15,6 +15,7 @@ description: 에이전트가 흩어진 맥락(메신저 대화·웹 문서·받�
 - 항상 `--limit` 로 결과를 제한(기본 20).
 - 에이전트가 파싱할 때는 **`--json`** 을 붙인다.
 - 프로젝트를 알면 `--project <id|name>` 로 범위를 좁힌다. 값이 불확실하면 **먼저 `projects`/`sources` 로 유효한 값을 확인**한 뒤 필터링한다(오타/없는 값은 조용히 `[]` 를 반환).
+- **`--project` 로 좁혔는데 결과가 유난히 적으면 프로젝트 배정 누락을 의심한다.** 소스가 `미분류` 로 남아 있으면 필터에서 조용히 탈락한다(에러가 아니라 적은 결과로 나타난다). `context-db sources --json` 으로 관련 소스가 그 프로젝트에 실제로 속해 있는지 확인하고, 아니면 운영자에게 `context-db rules` 확인을 요청한다.
 - 호출: `context-db <cmd>`. PATH에 없으면 `python <context-DB-path>/src/cli.py <cmd>` 로 동일하게 실행.
 - **`SchemaVersionError` 가 나면 재시도하지 말 것.** DB가 코드보다 낡은 스키마라는 뜻이라 모든 명령이 똑같이 실패한다. 에이전트가 고칠 수 있는 문제가 아니므로 **운영자에게 DB 재구축을 요청**한다(메시지에 절차가 포함돼 있다).
 
@@ -93,6 +94,8 @@ PATH 미설정 환경에서도 위 폴백 명령(`python <context-DB-path>/src/c
 | 소스→프로젝트 재매핑(미분류 배정·오배정 수정) | `context-db set-project "<소스명>" "<프로젝트>" [--type <코드>]` |
 | 프로젝트명 오타 수정/병합 | `context-db rename-project "<기존명>" "<새이름>"` |
 | 수동 태깅 | `context-db tag "<키워드>" --add <태그>` |
+| 소스 일괄 재매핑(부분 문자열) | `context-db set-project "<부분문자열>" "<프로젝트>" --match [--dry-run]` |
+| 프로젝트 자동 배정 규칙 확인 | `context-db rules [--json]` |
 
 ## 유지보수 절차 (코드 변경 시 작업 문서/skill 갱신) — 개발 에이전트용
 `src/cli.py`·`src/ingest.py`·`src/schema.sql` 등 **동작을 바꾸는 코드 변경**을 했다면, 커밋 전에 아래 순서로 문서·skill을 함께 갱신한다(ADR-013에서 확립된 절차).

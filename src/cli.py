@@ -60,6 +60,7 @@ def load_config() -> dict:
         "webdoc": None,
         "webdoc_title": "공유 문서",
         "project": db.DEFAULT_PROJECT,
+        "project_rules": [],
         "watch_interval": 60,
     }
     if os.path.exists(CONFIG_PATH):
@@ -80,6 +81,7 @@ def resolve(args, cfg) -> dict:
         "webdoc": getattr(args, "webdoc", None) or cfg.get("webdoc"),
         "webdoc_title": getattr(args, "webdoc_title", None) or cfg.get("webdoc_title", "공유 문서"),
         "project": getattr(args, "project", None) or cfg.get("project", db.DEFAULT_PROJECT),
+        "project_rules": cfg.get("project_rules") or [],
     }
 
 
@@ -130,14 +132,15 @@ def _run_ingest(r) -> None:
     con = db_connect(r["db"])
     try:
         if r["chat_root"]:
-            s = ing.ingest_chat_root(con, r["chat_root"], r["project"])
+            s = ing.ingest_chat_root(con, r["chat_root"], r["project"], r["project_rules"])
             print(f"[채팅] 채널 {s['channels']} · 파일 {s['files']} · "
                   f"신규 {s['inserted']} · 중복무시 {s['skipped']}")
         if r["files_root"]:
-            n = ing.ingest_files_root(con, r["files_root"], r["project"])
+            n = ing.ingest_files_root(con, r["files_root"], r["project"], r["project_rules"])
             print(f"[받은파일] 링크 {n}건")
         if r["webdoc"]:
-            ing.ingest_webdoc(con, r["webdoc"], r["webdoc_title"], r["project"])
+            ing.ingest_webdoc(con, r["webdoc"], r["webdoc_title"], r["project"],
+                              r["project_rules"])
             print(f"[웹 문서] 1건: {r['webdoc_title']}")
         total = con.execute("SELECT count(*) FROM context_item").fetchone()[0]
         print(f"[요약] context_item {total} → {r['db']}")
@@ -169,6 +172,9 @@ def cmd_set_project(args, cfg):
     r = resolve(args, cfg)
     con = db_connect(r["db"])
     try:
+        if args.match:
+            _set_project_bulk(con, args)
+            return
         pid = ing.get_or_create_project(con, args.project_name)
         if args.type:
             st = ing.source_type_id(con, args.type)
@@ -197,6 +203,76 @@ def cmd_set_project(args, cfg):
             print(f"[set-project] '{args.source}' → '{args.project_name}' 재매핑 완료")
         else:
             print(f"[set-project] 소스 '{args.source}' 를 찾지 못함")
+    finally:
+        con.close()
+
+
+def _set_project_bulk(con, args) -> None:
+    """--match: source 인자를 '부분 문자열'로 해석해 걸리는 소스를 한꺼번에 재매핑.
+
+    glob 이 아니라 부분 문자열인 이유는 db.resolve_project() 주석 참고
+    (채널명의 대괄호가 glob 문자 클래스로 해석돼 조용히 아무것도 매칭하지 않는다).
+    """
+    rows = con.execute(
+        "SELECT s.source_id, s.name, st.code, p.name FROM source s "
+        "JOIN source_type st USING(source_type_id) JOIN project p USING(project_id) "
+        "ORDER BY s.name").fetchall()
+    needle = args.source.lower()
+    hits = [x for x in rows if needle in x[1].lower()
+            and (not args.type or x[2] == args.type)]
+    if not hits:
+        print(f"[set-project] '{args.source}' 를 포함하는 소스가 없습니다.")
+        return
+    change = [x for x in hits if x[3] != args.project_name]
+    print(f"[set-project] '{args.source}' 매칭 {len(hits)}건 중 변경 대상 {len(change)}건:")
+    for _, name, code, cur in hits:
+        mark = " " if cur == args.project_name else "→"
+        print(f"   {mark} [{code}] {name}  ({cur})")
+    if args.dry_run:
+        print("[set-project] --dry-run 이므로 변경하지 않았습니다.")
+        return
+    if not change:
+        print("[set-project] 이미 전부 해당 프로젝트입니다.")
+        return
+    pid = ing.get_or_create_project(con, args.project_name)
+    con.executemany("UPDATE source SET project_id=? WHERE source_id=?",
+                    [(pid, x[0]) for x in change])
+    con.commit()
+    print(f"[set-project] {len(change)}건을 '{args.project_name}' 로 재매핑 완료")
+
+
+def cmd_rules(args, cfg):
+    """config 의 project_rules 를 기존 소스에 적용해보고 차이를 보여준다(변경 없음).
+
+    설치 직후 규칙을 짤 때, 규칙이 실제로 무엇을 잡는지 먼저 확인하기 위한 명령이다.
+    """
+    r = resolve(args, cfg)
+    rules = r["project_rules"]
+    if not args.json:
+        if rules:
+            print(f"[rules] {len(rules)}개 규칙 (위에서부터 먼저 맞는 것이 이김, 부분 문자열):")
+            for i, rule in enumerate(rules, 1):
+                print(f"   {i}. '{rule.get('match')}' → {rule.get('project')}")
+        else:
+            print("[rules] 설정된 규칙이 없습니다. context-db.config.json 에 추가하세요:")
+            print('        "project_rules": [{"match": "피지컬", "project": "피지컬AI"}]')
+        print(f"   (미매칭 시 기본값: '{r['project']}')\n")
+    con = db_connect(r["db"])
+    try:
+        rows = con.execute(
+            "SELECT s.name, st.code, p.name FROM source s "
+            "JOIN source_type st USING(source_type_id) JOIN project p USING(project_id) "
+            "ORDER BY s.name").fetchall()
+        out = []
+        for name, code, current in rows:
+            want = db.resolve_project(name, rules, r["project"])
+            out.append((name, code, current, want, "차이" if want != current else ""))
+        emit(out, ["source", "type", "current", "by_rules", "diff"], args.json)
+        if not args.json:
+            n = sum(1 for x in out if x[4])
+            print(f"\n[rules] 규칙과 다른 소스 {n}건. "
+                  f"규칙은 신규 소스에만 적용되므로, 기존 소스는 set-project 로 교정하세요:")
+            print("        context-db set-project \"<부분문자열>\" \"<프로젝트>\" --match --dry-run")
     finally:
         con.close()
 
@@ -535,10 +611,36 @@ def _register_background(interval_min: int) -> None:
     print(f"        (실행 권한이 없다면: chmod +x {os.path.join(ROOT, 'context-db')})")
 
 
+def _ensure_config() -> bool:
+    """config 가 없으면 example 에서 만들어 준다. 생성했으면 True.
+
+    설치 직후 바로 경로·프로젝트 규칙을 채워 넣을 수 있도록, 사용자가 example 을
+    손으로 복사하는 단계를 없앤다."""
+    if os.path.exists(CONFIG_PATH):
+        return False
+    example = os.path.join(ROOT, "context-db.config.example.json")
+    if not os.path.exists(example):
+        return False
+    text = open(example, encoding="utf-8").read().replace(
+        "<context-DB-path>", ROOT.replace("\\", "/"))
+    with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return True
+
+
 def cmd_setup(args, cfg):
+    created = _ensure_config()
     dst = _install_skill(_skill_target_dir(args))
     print(f"[setup] skill 배포 완료 → {dst}")
     print(f"        (자리표시자 <context-DB-path> → {ROOT} 치환)")
+    if created:
+        print(f"[setup] 설정 파일 생성 → {CONFIG_PATH}")
+        print("        이제 아래를 채우세요:")
+        print("          chat_root / files_root : 메신저 채팅저장·받은파일 폴더 경로")
+        print("          project_rules          : 채널명 부분 문자열 → 프로젝트 자동 배정")
+        print("        규칙이 무엇을 잡는지 미리 보기: context-db rules")
+    else:
+        print(f"[setup] 설정 파일 이미 있음 → {CONFIG_PATH} (건드리지 않음)")
     if args.background:
         _register_background(args.interval or 10)
     else:
@@ -585,7 +687,15 @@ def build_parser():
     sp.add_argument("source", help="재매핑할 소스명(메신저 채널명/웹문서 제목/파일함명 — sources 명령으로 확인)")
     sp.add_argument("project_name", help="새로 지정할 프로젝트명(없으면 자동 생성)")
     sp.add_argument("--type", help="이름이 여러 소스 유형에 겹칠 때 지정(예: messenger, web_doc, file)")
+    sp.add_argument("--match", action="store_true",
+                    help="소스명을 정확한 이름이 아니라 '부분 문자열'로 해석해 걸리는 소스를 일괄 재매핑")
+    sp.add_argument("--dry-run", action="store_true",
+                    help="--match 와 함께: 무엇이 바뀔지만 보여주고 실제로 바꾸지 않음")
     sp.set_defaults(func=cmd_set_project)
+
+    sp = sub.add_parser("rules", help="프로젝트 자동 배정 규칙 확인 + 기존 소스에 적용해보기(변경 없음)")
+    sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
+    sp.set_defaults(func=cmd_rules)
 
     sp = sub.add_parser("rename-project", help="프로젝트명 오타 수정(또는 기존 프로젝트로 병합)")
     sp.add_argument("old_name", help="현재(잘못 입력된) 프로젝트명")
