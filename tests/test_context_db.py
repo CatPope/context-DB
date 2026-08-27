@@ -29,6 +29,19 @@ PASS = 0
 FAIL = 0
 
 
+def _mk_item(con, source_id, **cols):
+    """context_item 한 행 삽입 — 컬럼 목록을 이 함수 한 곳에 가둔다.
+
+    스키마가 바뀌어도 테스트 호출부 N곳이 아니라 여기만 고치면 된다.
+    """
+    cols = {"source_id": source_id, **cols}
+    names = ",".join(cols)
+    ph = ",".join("?" * len(cols))
+    cur = con.execute(f"INSERT INTO context_item({names}) VALUES ({ph})", tuple(cols.values()))
+    con.commit()
+    return cur.lastrowid
+
+
 def check(name, cond, detail=""):
     global PASS, FAIL
     if cond:
@@ -109,11 +122,10 @@ def main():
     check("접두어 '안녕*' 매치", pre == 1, f"pre={pre}")
 
     print("== 5c. FTS 트리거(임시 행, 원본 6행 불변) ==")
-    tcur = con.execute("INSERT INTO context_item(source_id,item_type,event_ts,content,external_id) "
-                       "SELECT source_id,'message','2026-08-01 23:59:00','임시검색어ZZZ','__tmp__' "
-                       "FROM source LIMIT 1")
-    tid = tcur.lastrowid
-    con.commit()
+    tsrc = con.execute("SELECT source_id FROM source LIMIT 1").fetchone()[0]
+    tid = _mk_item(con, tsrc, item_type=ing.ItemType.MESSAGE,
+                   event_ts="2026-08-01 23:59:00", content="임시검색어ZZZ",
+                   external_id="__tmp__")
     ai = con.execute("SELECT count(*) FROM context_fts WHERE context_fts MATCH '임시검색어ZZZ'").fetchone()[0]
     check("INSERT 트리거 반영", ai == 1, f"ai={ai}")
     con.execute("UPDATE context_item SET content='임시변경어ZZZ' WHERE context_item_id=?", (tid,))

@@ -29,9 +29,19 @@ import argparse
 import hashlib
 import os
 import re
-import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
+
+# DB 접근은 전부 db.py 경유(FK 강제·스키마 버전 검사가 그 한 곳에 있다).
+# connect/DEFAULT_SCHEMA 는 기존 호출부 호환을 위해 여기서도 그대로 노출한다.
+from db import (  # noqa: F401
+    DEFAULT_DB,
+    DEFAULT_PROJECT,
+    DEFAULT_SCHEMA,
+    ItemType,
+    SourceType,
+    connect,
+)
 
 # 콘솔 인코딩(Windows cp949) 문제 방지
 try:
@@ -39,9 +49,6 @@ try:
     sys.stderr.reconfigure(encoding="utf-8")
 except Exception:
     pass
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SCHEMA = os.path.join(HERE, "schema.sql")
 
 # [2026-07-24 오후 2:12] 홍길동
 HEADER_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}) (오전|오후) (\d{1,2}):(\d{2})\] (.+)$")
@@ -56,19 +63,7 @@ FILE_LINE_RE = re.compile(
 
 
 # ─────────────────────────── DB 헬퍼 ───────────────────────────
-def connect(db_path: str, schema_path: str) -> sqlite3.Connection:
-    con = sqlite3.connect(db_path)
-    con.execute("PRAGMA foreign_keys = ON")
-    # 스키마 미적용이면 적용
-    row = con.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='context_item'"
-    ).fetchone()
-    if row is None:
-        with open(schema_path, encoding="utf-8") as fh:
-            con.executescript(fh.read())
-        con.execute("PRAGMA foreign_keys = ON")
-        con.commit()
-    return con
+# connect() 는 db.py 로 이관됨(위 import 에서 재노출).
 
 
 def get_or_create_project(con, name: str) -> int:
@@ -147,10 +142,10 @@ def read_text(path: str) -> str:
 
 def classify(content: str) -> str:
     if SYSTEM_RE.search(content):
-        return "system"
+        return ItemType.SYSTEM
     if "\n" not in content and FILE_LINE_RE.match(content.strip()):
-        return "file"
-    return "message"
+        return ItemType.FILE
+    return ItemType.MESSAGE
 
 
 def parse_chat_file(path: str):
@@ -193,7 +188,8 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
         if not txts:
             continue
         stats["channels"] += 1
-        src_id = upsert_source(con, "messenger", channel, cdir, project_name, is_ephemeral=1)
+        src_id = upsert_source(con, SourceType.MESSENGER, channel, cdir, project_name,
+                               is_ephemeral=1)
         for txt in txts:
             fpath = os.path.join(cdir, txt)
             stats["files"] += 1
@@ -221,7 +217,8 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
 def ingest_files_root(con, files_root: str, project_name: str) -> int:
     if not files_root or not os.path.isdir(files_root):
         return 0
-    src_id = upsert_source(con, "file", "메신저 받은파일", files_root, project_name, is_ephemeral=0)
+    src_id = upsert_source(con, SourceType.FILE, "메신저 받은파일", files_root, project_name,
+                           is_ephemeral=0)
     n = 0
     for entry in os.scandir(files_root):
         if entry.is_file():
@@ -236,7 +233,8 @@ def ingest_files_root(con, files_root: str, project_name: str) -> int:
 def ingest_webdoc(con, url: str, title: str, project_name: str) -> None:
     if not url:
         return
-    src_id = upsert_source(con, "web_doc", title or "공유 문서", url, project_name, is_ephemeral=0)
+    src_id = upsert_source(con, SourceType.WEB_DOC, title or "공유 문서", url, project_name,
+                           is_ephemeral=0)
     add_link_once(con, url=url, title=title or "공유 문서", source_id=src_id)
     con.commit()
 
@@ -244,13 +242,13 @@ def ingest_webdoc(con, url: str, title: str, project_name: str) -> None:
 # ─────────────────────────── main ───────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="context-DB 적재기")
-    ap.add_argument("--db", default=os.path.join(os.path.dirname(HERE), "context.db"))
+    ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--schema", default=DEFAULT_SCHEMA)
     ap.add_argument("--chat-root", default=None, help="메신저 채팅저장 루트 폴더")
     ap.add_argument("--files-root", default=None, help="메신저 받은파일 폴더(메타만)")
     ap.add_argument("--webdoc", default=None, help="웹 문서 URL(링크만)")
     ap.add_argument("--webdoc-title", default="공유 문서")
-    ap.add_argument("--project", default="미분류", help="신규 소스에 부여할 프로젝트명")
+    ap.add_argument("--project", default=DEFAULT_PROJECT, help="신규 소스에 부여할 프로젝트명")
     args = ap.parse_args()
 
     con = connect(args.db, args.schema)

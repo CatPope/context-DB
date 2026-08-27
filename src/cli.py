@@ -41,12 +41,13 @@ try:
 except Exception:
     pass
 
-import ingest as ing  # 동일 폴더의 ingest.py 재사용
+import db                            # 커넥션·상수 단일 출처
+import ingest as ing                 # 동일 폴더의 ingest.py 재사용
 
-HERE = os.path.dirname(os.path.abspath(__file__))          # src/
-ROOT = os.path.dirname(HERE)                                # 저장소 루트
+HERE = db.SRC_DIR                                           # src/
+ROOT = db.ROOT_DIR                                          # 저장소 루트
 CONFIG_PATH = os.path.join(ROOT, "context-db.config.json")
-DEFAULT_DB = os.path.join(ROOT, "context.db")
+DEFAULT_DB = db.DEFAULT_DB
 SKILL_SRC = os.path.join(ROOT, "context-db.skill.md")      # 배포 원본 skill
 
 
@@ -58,7 +59,7 @@ def load_config() -> dict:
         "files_root": None,
         "webdoc": None,
         "webdoc_title": "공유 문서",
-        "project": "미분류",
+        "project": db.DEFAULT_PROJECT,
         "watch_interval": 60,
     }
     if os.path.exists(CONFIG_PATH):
@@ -78,7 +79,7 @@ def resolve(args, cfg) -> dict:
         "files_root": getattr(args, "files_root", None) or cfg.get("files_root"),
         "webdoc": getattr(args, "webdoc", None) or cfg.get("webdoc"),
         "webdoc_title": getattr(args, "webdoc_title", None) or cfg.get("webdoc_title", "공유 문서"),
-        "project": getattr(args, "project", None) or cfg.get("project", "미분류"),
+        "project": getattr(args, "project", None) or cfg.get("project", db.DEFAULT_PROJECT),
     }
 
 
@@ -103,7 +104,7 @@ def _clip(s: str, n: int = 70) -> str:
 
 
 def db_connect(db_path):
-    return ing.connect(db_path, ing.DEFAULT_SCHEMA)
+    return db.connect(db_path)
 
 
 # ─────────────────────────── 운영/적재 ───────────────────────────
