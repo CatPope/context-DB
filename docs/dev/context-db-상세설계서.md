@@ -126,6 +126,9 @@
 - 웹 문서: `source(type='web_doc', name='공유 문서', uri=문서 URL)` + `link(source_id, url=URL, title=문서명)`.
 - 받은파일: `source(type='file', name='메신저 받은파일', uri=폴더 경로)` + 파일별 `link(source_id, url=파일 절대경로, title=파일명, last_checked_at=수정시각)`.
 - 설정 입력: `context-db.config.json`의 경로/URL을 사용(과거 `docs/맥락 정보.md` 폴백은 제거됨).
+- **경로 저장 형식**: 위 `uri`/`url`(웹 URL 제외)은 실제로는 절대경로가 아니라 루트 토큰(`{chat_root}/...`,
+  `{files_root}/...`)으로 저장한다(`pack_path()`/`resolve_path()`, `src/db.py`). 이유는 DB 이식성 —
+  `context.db`를 다른 PC로 옮겨도 그 PC의 config 루트로 해소되어 경로가 죽지 않는다.
 
 ## 8. 대표 질의·뷰
 

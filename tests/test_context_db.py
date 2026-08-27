@@ -378,6 +378,28 @@ def main():
     check("전 플랫폼 해제 명령 제공",
           all(p["deactivate"] for p in (win, lin, mac)))
 
+    print("== 15c. 실패 경로: 낡은 스키마 · 잘못 배치된 래퍼 ==")
+    # 낡은 스키마 DB 는 트레이스백이 아니라 읽을 수 있는 메시지 + rc=1 로 끝나야 한다.
+    # (skill 이 "SchemaVersionError 면 재시도하지 말라"고 안내하는데 트레이스백이면 알아보기 어렵다)
+    stale = os.path.join(tmp, "stale.db")
+    import shutil as _sh
+    _sh.copy(db, stale)
+    scon = sqlite3.connect(stale)
+    scon.execute("PRAGMA user_version = 1")   # 코드가 기대하는 버전과 다르게
+    scon.commit(); scon.close()
+    rs = subprocess.run([sys.executable, cli, "--db", stale, "stats"],
+                        capture_output=True, text=True, encoding="utf-8", env=env)
+    check("낡은 스키마 → rc=1", rs.returncode == 1, f"rc={rs.returncode}")
+    check("낡은 스키마 → 트레이스백 아닌 안내 메시지",
+          "[오류]" in rs.stderr and "Traceback" not in rs.stderr and "재구축" in rs.stderr,
+          rs.stderr[:160])
+
+    # 래퍼를 복사(심링크가 아니라)해 옮기면 원인을 알 수 있는 메시지가 나와야 한다.
+    if os.path.exists(posix_entry):
+        body = open(posix_entry, encoding="utf-8").read()
+        check("POSIX 래퍼가 잘못 배치되면 안내 후 종료",
+              "src/cli.py" in body and "심링크" in body and "exit 1" in body)
+
     print(f"\n결과: PASS={PASS}  FAIL={FAIL}")
     sys.exit(1 if FAIL else 0)
 

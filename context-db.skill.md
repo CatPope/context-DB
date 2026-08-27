@@ -62,17 +62,27 @@ context-db by-person "홍길동" --limit 10 --json
 
 ```bash
 # skill을 전역(~/.claude/skills/context-db)에 배포
+# 진입점: Windows=context-db.bat, macOS/Linux=context-db(POSIX 셸 스크립트, 최초 1회 chmod +x 필요)
 context-db setup
 
 # 특정 폴더(프로젝트 .claude/skills 등)에 배포
 context-db setup --path <프로젝트>/.claude/skills
 
-# 배포 + 백그라운드 상시 적재 등록(권장, Windows 작업 스케줄러 · 기본 10분 주기)
+# 배포 + 백그라운드 상시 적재 등록(기본 10분 주기) — 등록 방식은 플랫폼마다 다르다(아래 참고)
 context-db setup --background --interval 10
 ```
 `setup` 은 skill 본문의 `<context-DB-path>` 자리표시자를 실제 저장소 경로로 치환해 배포하므로,
 PATH 미설정 환경에서도 위 폴백 명령(`python <context-DB-path>/src/cli.py`)이 그대로 동작한다.
-**상시 적재(`--background`)를 켜두면** 새 대화·문서가 자동으로 DB에 반영되어 항상 최신 맥락을 조회할 수 있다.
+
+**`--background`가 실제로 "자동"인지는 플랫폼마다 다르다 — 에이전트는 이를 알고 있어야 한다:**
+- **Windows**: 작업 스케줄러에 직접 등록까지 완료된다. 이후 새 대화·문서가 자동으로 DB에 반영된다.
+- **macOS**: `~/Library/LaunchAgents/com.contextdb.ingest.plist` 파일만 생성하고 `launchctl load -w <path>`
+  명령을 안내한다 — 이 명령을 운영자가 직접 실행해야 상시 적재가 켜진다. 실행 전까지는 자동 반영이 시작되지 않는다.
+- **Linux/기타 POSIX**: crontab 한 줄을 출력·안내만 한다 — 운영자가 `crontab -e` 등으로 직접 추가해야 켜진다.
+
+즉 macOS/Linux 에서는 운영자가 안내된 명령을 실제로 실행했는지에 따라 상시 적재 여부가 갈린다.
+이 skill로 조회한 결과가 **최신이 아닐 수 있음**을 감안한다 — 특히 최근 대화·문서를 찾는데 결과가
+비거나 오래돼 보이면 적재가 자동으로 돌고 있다고 가정하지 말고 운영자에게 확인을 요청한다.
 
 ## 운영 명령 (참고 — 보통 자동 처리)
 | 목적 | 명령 |

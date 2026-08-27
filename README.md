@@ -18,6 +18,21 @@
 > 참고: 일부 독립 `sqlite3.exe`(CLI)에는 FTS5가 빠져 있어 `sqlite3 context.db < schema.sql`이
 > 실패할 수 있다. 스키마 생성·적재는 Python 경로(`context-db init` / `ingest`)를 사용한다.
 
+## 지원 환경
+| 항목 | 상태 |
+|---|---|
+| 진입점 | Windows=`context-db.bat`, POSIX=`context-db`(chmod +x 필요) |
+| 조회 명령 8종 | 전 플랫폼 동일 |
+| 적재(`ingest`/`watch`) | 전 플랫폼 동일 |
+| 상시 적재 자동 등록 | Windows=자동, macOS=plist 생성 후 launchctl 수동, Linux=crontab 안내 |
+| DB 파일 이식 | 가능(루트 토큰 저장) |
+| **원본 로그** | **하이웍스 채팅 저장 폴더가 그 PC 에 있어야 적재 가능** |
+
+마지막 행이 핵심이다. 이건 코드로 해결할 수 없는 **데이터 소재** 문제다 — 저장소를 클론해도 그 PC에
+하이웍스 채팅 저장 폴더(원본 로그)가 없으면 채울 데이터가 없다. 반면 `context.db` 파일 자체를 다른
+PC로 복사해 오는 것은 이제 가능하다 — `source.uri`/`link.url`이 절대경로가 아니라 루트 토큰
+(`{chat_root}/...`)으로 저장되므로 옮겨도 경로가 죽지 않는다(그 PC의 config로 해소).
+
 ## 설정
 `context-db.config.example.json` 을 `context-db.config.json` 으로 복사해 경로를 채운다.
 (실제 설정 파일은 사설 경로를 담으므로 `.gitignore` 로 제외된다. 없으면 내장 기본값을 사용한다.)
@@ -48,7 +63,8 @@ context-db setup --background --interval 10         # 배포 + 상시 적재 등
 - `setup` 은 skill 본문의 `<context-DB-path>` 자리표시자를 실제 저장소 경로로 치환해 배포한다.
 
 ## CLI 사용
-`context-db.bat` 이 있는 폴더를 PATH에 추가하면 어디서나 `context-db <command>` 로 실행할 수 있다.
+`context-db.bat`(Windows) 또는 `context-db`(POSIX) 가 있는 폴더를 PATH에 추가하면 어디서나
+`context-db <command>` 로 실행할 수 있다.
 
 **PATH 추가(사용자 영구, 관리자 불필요 — PowerShell):**
 ```powershell
@@ -59,6 +75,14 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 새 터미널부터 적용된다(확인: `where.exe context-db` 또는 `Get-Command context-db` — PowerShell에서 `where`는 `Where-Object` 별칭이라 안 됨). 임시로 현재 세션에만 넣으려면
 `$env:Path += ';<context-DB-path>'`(PowerShell) / `set PATH=%PATH%;...`(cmd).
 ※ `setx PATH "%PATH%;..."` 는 1024자 잘림·시스템경로 혼입 위험이 있어 위 방식을 권장한다.
+
+**POSIX(macOS/Linux) 설치:**
+```bash
+chmod +x context-db
+export PATH="$PATH:<context-DB-path>"
+```
+위 `export`는 현재 세션에만 적용된다. 영구 적용하려면 쉘 설정 파일(`~/.bashrc`, `~/.zshrc` 등)에
+같은 줄을 추가한다.
 
 (PATH에 넣지 않으면 `python <context-DB-path>/src/cli.py <command>` 로도 동일)
 

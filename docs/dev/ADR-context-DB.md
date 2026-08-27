@@ -8,7 +8,7 @@
 |---|---|
 | 과제 | context-DB — 에이전트 맥락 저장·질의 DB (SQLite + FTS5) |
 | 작성일자 | 2026-08-10 (최종 갱신 2026-08-27) |
-| 상태 | MVP + `src/` 재구성 + 용어 일반화 + `setup` 명령 + `set-project` 일반화/`rename-project` 신설 · **DB 정규화 리팩터(ADR-014)** · 테스트 48/48 PASS · 커밋 완료 |
+| 상태 | MVP + `src/` 재구성 + 용어 일반화 + `setup` 명령 + `set-project` 일반화/`rename-project` 신설 · **DB 정규화 리팩터(ADR-014)** · **이식성 개선(ADR-015)** · 테스트 63/63 PASS · 커밋 완료 |
 | 데이터 | 사내·사적 대화 포함 → **로컬 전용, 외부 전송 금지** |
 
 ---
@@ -34,6 +34,7 @@
 - 2026-08-11(발표 준비): OJT 발표 원고(`docs/presentation/context-db-발표원고.md`) 작성 중 받은 심화 질문(FTS5/한글 품질, 태그 역할, 프로젝트·소스 동적 유지, NULL 처리, 벡터DB 전환 계획, `--help` 지원, 미분류/오타 프로젝트 수정)에 코드 기준으로 답변 → `docs/dev/질의응답.md` 로 문서화. 이 과정에서 `set-project`가 메신저 타입에만 하드코딩된 제약을 발견 → ADR-013.
 - 2026-08-11(ADR-013): `cli.py` 전 옵션에 `--help` 문구 채움 · `set-project` 소스 타입 제약 제거(+`--type` 모호성 해소) · `rename-project` 신설(오타 수정/병합) · 회귀 테스트 3건 추가 · README/skill 문서 갱신 · skill 재배포. 테스트 40→43/43.
 - 2026-08-27(ADR-014): DB 정규화 리팩터 — `src/db.py` 신설(커넥션 단일화·스키마 버전 가드), FK 참조 액션 명시, `external_id` NOT NULL, `link` 부분 유니크 인덱스+XOR 아크, `is_ephemeral`→`source_type`, `item_type` 조회 테이블화, `thread_key` 제거. 라이브 DB 재구축+복원. 테스트 43→48.
+- 2026-08-27(ADR-015): 이식성 — POSIX 진입점 `context-db` 신설, `setup --background` 의 macOS/Linux 경로, `source.uri`/`link.url` 을 루트 토큰(`{chat_root}/...`)으로 저장해 DB 파일을 다른 PC 로 옮길 수 있게 함. 테스트 48→63.
 
 ## 2. 파일 맵
 
@@ -43,7 +44,9 @@
 | `src/db.py` | **커넥션 단일 경로**(FK 강제·스키마 버전 가드) + 상수(`DEFAULT_PROJECT`/`SourceType`/`ItemType`) | ✅ |
 | `src/ingest.py` | 로그 파서 + 적재(멱등) + 웹 문서/파일 메타 등록 | ✅ |
 | `src/cli.py` | 통합 CLI(운영/조회). config 로딩·`--json` | ✅ |
-| `context-db.bat` | CLI 래퍼(`chcp 65001` + `python src/cli.py %*`) | ✅ |
+| `context-db.bat` | Windows CLI 래퍼(`chcp 65001` + `python src/cli.py %*`) | ✅ |
+| `context-db` | **POSIX CLI 래퍼**(심링크 해석 + `python3`→`python` 폴백, mode 100755) | ✅ |
+| `.gitattributes` | 셸 스크립트 LF 고정(CRLF 면 `bad interpreter ... sh^M`) | ✅ |
 | `context-db.config.example.json` | 설정 예시 | ✅ |
 | `context-db.config.json` | **실 설정(사설 경로)** | ❌ gitignore |
 | `context.db` | **실 DB(사적 데이터)** | ❌ gitignore |
@@ -51,7 +54,7 @@
 | `context-db.skill.md` | 에이전트 연동 skill(CLI 기반) | ✅ |
 | `src/queries.sql` | 대표 질의 Q1~Q5 + 뷰 | ✅ |
 | `README.md` | 사용법 | ✅ |
-| `tests/test_context_db.py` | 결정적 테스트 스위트(48 케이스) | ✅ |
+| `tests/test_context_db.py` | 결정적 테스트 스위트(63 케이스) | ✅ |
 | `docs/dev/*.md` | 제안서·상위설계서·상세설계·비교보고서·테스트보고서·질의응답·본 ADR | ✅ |
 | `docs/dev/context-db-상세설계서.md` | 상세설계 spec(커밋본; `.omc/specs/` 사본은 gitignore) | ✅ |
 | `docs/dev/질의응답.md` | 발표 준비 중 받은 심화 질문(FTS5/한글, 태그, 프로젝트 유지, NULL 처리, 벡터DB, `--help`, 미분류/오타) Q&A 기록 | ✅ |
@@ -195,6 +198,42 @@
   - **제출본 divergence**: `docs/presentation/제출/`의 결과보고서·발표자료는 커밋 `ff6da11`
     시점 스키마를 서술한다. 이미 제출된 학술 산출물이므로 갱신하지 않는다.
 
+### ADR-015 — 이식성: POSIX 진입점 · 플랫폼별 상시 적재 · DB 경로 토큰화
+- **상태**: 채택 (2026-08-27)
+- **맥락**: "어느 PC 에서 쓰든 같은 기능인가" 관점에서 점검한 결과, **조회 계층은 이식 가능하지만
+  적재·자동화 계층이 Windows 종속**이었다. 구체적으로 (1) 진입점이 `.bat` 하나뿐이라 POSIX 에서
+  `context-db <cmd>` 형태가 없었고, (2) `setup --background` 가 Windows 밖에서는 "지원하지
+  않습니다" 만 출력해서 skill 이 약속하는 "상시 적재로 항상 최신"이 그 환경에서 거짓이 됐으며,
+  (3) `source.uri`/`link.url` 에 머신 고유 절대경로가 박혀 DB 파일을 옮기면 경로가 전부 죽었다.
+- **결정**:
+  1. **POSIX 진입점 `context-db` 신설**(mode 100755). 심링크를 따라 자기 위치를 해석하므로
+     PATH 심링크로 걸어도 동작한다(`.bat` 의 `%~dp0` 대응). `python3` → `python` 폴백.
+     `.gitattributes` 로 LF 고정 — CRLF 가 섞이면 `bad interpreter: /usr/bin/env sh^M` 로 죽는다.
+  2. **`background_plan(platform, interval, root)`** 으로 등록 '계획' 계산을 부수효과에서 분리.
+     Windows 는 종전대로 `schtasks` 직접 등록, macOS 는 LaunchAgent plist 생성,
+     Linux 는 crontab 라인 제시.
+  3. **경로를 루트 토큰으로 저장**: `{chat_root}/AI 플랫폼 팀`, `{files_root}/보고서.pdf`.
+     스킴이 있는 URL 은 통과. `db.py` 의 `pack_path()`/`resolve_path()` 한 쌍이 담당.
+- **대안**:
+  - **launchctl/crontab 자동 실행** — 기각. 개발 환경이 Windows 라 해당 OS 에서의 등록을
+    검증할 수 없었다. 검증하지 않은 등록을 조용히 수행하는 것보다 정확한 명령을 제시하는 편이
+    정직하다. 생성물(plist 본문·crontab 라인)의 **내용은** 테스트로 검증했다.
+  - **경로를 루트 기준 상대경로로만 저장**(토큰 없이) — 기각. 어느 루트 기준인지 값만 봐서는
+    알 수 없어 `source_type` 에서 파생 규칙을 유도해야 한다. DBeaver 로 직접 열어본 사람에게
+    의미가 자명하지 않다. 토큰은 skill 배포의 `<context-DB-path>` 자리표시자와 같은
+    관용구라 프로젝트 내 일관성도 있다.
+  - **`--json` 에 토큰을 그대로 노출** — 기각. `--json` 필드 의미는 문서화된 계약(ADR-007)이다.
+    조회 시 해소해 절대경로로 내보내 계약을 지킨다.
+- **결과**: 테스트 48 → 63 PASS. 신규 15건은 경로 토큰 왕복·경계(URL 통과, 루트 밖 경로,
+  루트 미설정, 타 PC config 해소) 8건과 진입점·플랫폼별 계획 7건.
+  - DB 재구축 후 baseline 대조 7종 전부 일치. 저장된 절대경로 0건. 같은 DB 가 Linux config 로
+    `/home/u/chats/...` 로 해소되는 것까지 확인.
+  - **공개하는 동작 변화 하나**: `links`/`by-tag` 의 `url` 값이 구분자가 `/` 로 정규화됐다
+    (이전엔 `.../받은파일\보고서.pdf` 처럼 `/`·`\` 혼재). 필드명·가리키는 파일은 동일하다.
+  - **검증 못 한 것**: launchd/cron 등록의 실제 활성화. 해당 OS 가 없어 생성물 내용만 검증했다.
+- **여전히 남는 한계**: 원본 하이웍스 채팅 저장 폴더가 그 PC 에 있어야 적재가 된다. 이건 코드로
+  해결할 수 없는 **데이터 소재 문제**다. 다만 DB 파일 자체를 복사해 오는 길은 이번에 열렸다.
+
 ## 4. 데이터 모델 요약
 
 엔티티: `project`(1:N)→`source`←`source_type`(1:N), `source`(1:N)→`context_item`←`person`(1:N),
@@ -241,7 +280,7 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 ※ `setx PATH "%PATH%;..."` 는 1024자 잘림·시스템경로 혼입 위험이 있어 위 방식 권장.
 
 ## 6. 테스트 상태
-- 자동화: `tests/test_context_db.py` **48 PASS / 0 FAIL** (파서·시각변환·멀티라인·항목유형 분류·FTS 트리거/검색·토큰화·멱등·Issue1 회귀·인코딩 폴백(cp949/BOM)·받은파일/웹 문서 링크·무결성(FK/CHECK)·**FK 참조 액션(CASCADE/SET NULL)**·**배타적 아크·부분 UNIQUE**·뷰·CLI `--json`·`set-project` 전 타입 재매핑·`rename-project` 개명/병합).
+- 자동화: `tests/test_context_db.py` **63 PASS / 0 FAIL** (파서·시각변환·멀티라인·항목유형 분류·FTS 트리거/검색·토큰화·멱등·Issue1 회귀·인코딩 폴백(cp949/BOM)·받은파일/웹 문서 링크·무결성(FK/CHECK)·**FK 참조 액션(CASCADE/SET NULL)**·**배타적 아크·부분 UNIQUE**·뷰·CLI `--json`·`set-project` 전 타입 재매핑·`rename-project` 개명/병합·**경로 토큰 왕복/경계**·**플랫폼별 상시 적재 계획**).
 - 실데이터 스모크: 검색·watch 멱등 통과. 상세: `docs/dev/테스트보고서.md`.
 
 ## 7. 알려진 한계 & 열린 과제 (다음 에이전트가 이어받을 후보)

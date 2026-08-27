@@ -649,7 +649,13 @@ def build_parser():
 def main():
     args = build_parser().parse_args()
     cfg = load_config()
-    args.func(args, cfg)
+    try:
+        args.func(args, cfg)
+    except db.SchemaVersionError as e:
+        # 사용자·에이전트가 읽을 메시지다. 트레이스백으로 던지면 안내문이 묻히고,
+        # skill 이 "이 에러면 재시도하지 말라"고 가르쳐도 알아보기 어려워진다.
+        print(f"[오류] {e}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,15 @@ while [ -L "$src" ]; do
 done
 HERE=$(cd -P "$(dirname "$src")" && pwd)
 
+# Copying this script elsewhere breaks it (src/ won't be there). Symlink instead.
+# Without this guard the failure surfaces as an opaque Python "can't open file" error.
+if [ ! -f "$HERE/src/cli.py" ]; then
+  echo "context-db: $HERE/src/cli.py 를 찾을 수 없습니다." >&2
+  echo "  이 래퍼는 저장소 안에 있어야 합니다. 다른 위치에서 쓰려면 복사하지 말고" >&2
+  echo "  심링크를 거세요:  ln -s /path/to/context-DB/context-db ~/bin/context-db" >&2
+  exit 1
+fi
+
 # FTS5 must be present in Python's bundled sqlite3; a standalone sqlite3 CLI often lacks it.
 if command -v python3 >/dev/null 2>&1; then
   exec python3 "$HERE/src/cli.py" "$@"
