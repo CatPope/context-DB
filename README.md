@@ -9,7 +9,19 @@
 
 - 상세설계: `docs/dev/context-db-상세설계서.md`
 - 소스: `src/schema.sql` · 공용 DB 접근 계층(`connect()`/버전 검사) `src/db.py` · 적재 `src/ingest.py` · CLI `src/cli.py` · 질의 모음 `src/queries.sql`
-- 에이전트 연동: `context-db.skill.md`
+- 에이전트 연동 skill 3종:
+
+  | skill | 역할 |
+  |---|---|
+  | `context-db.skill.md` | **조회 엔진** — CLI로 맥락을 회수하는 방법 |
+  | `context-briefing.skill.md` | 응용 — 모아서 **"지금 어디까지 왔는가"** 를 종합 |
+  | `task-roundup.skill.md` | 응용 — 그 결과로 **"다음에 뭘 해야 하는가"** 를 도출 |
+
+  응용 skill 2종은 **대화는 DB에서, 영속 자료는 `links` 로 원본을** 읽는 ADR-017 원칙
+  위에서 동작한다. 대화 로그 폴더를 직접 훑으면 원본에서 이미 사라진 구간을 잃는다.
+
+  > ⚠️ 현재 `setup` 은 `context-db.skill.md` **한 개만** 배포한다.
+  > 응용 skill 2종은 수동 복사가 필요하다(다중 배포는 후속 과제).
 
 ## 요구 사항
 - Python 3.9+ (표준 라이브러리만 사용; `sqlite3`에 **FTS5 내장** 필요 — 공식 Windows 빌드는 포함)
