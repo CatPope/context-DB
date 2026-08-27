@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS project (
 CREATE TABLE IF NOT EXISTS source_type (
   source_type_id INTEGER PRIMARY KEY,
   code           TEXT NOT NULL UNIQUE,   -- messenger, web_doc, web_link, paper, server_info, file, note
-  label          TEXT NOT NULL
+  label          TEXT NOT NULL,
+  -- 휘발성은 소스 개별이 아니라 소스 '유형'이 결정한다(3NF: source 에 두면 이행 종속).
+  is_ephemeral   INTEGER NOT NULL DEFAULT 0 CHECK (is_ephemeral IN (0,1))
 );
 
 -- ─────────────────────────────────────────────────────────────
@@ -38,7 +40,7 @@ CREATE TABLE IF NOT EXISTS source (
                    ON UPDATE CASCADE ON DELETE RESTRICT,
   name           TEXT NOT NULL,          -- 채널명/문서명/파일저장소명
   uri            TEXT,                   -- 폴더 절대경로/웹 문서 URL/파일 경로
-  is_ephemeral   INTEGER NOT NULL DEFAULT 0 CHECK (is_ephemeral IN (0,1)),
+  -- is_ephemeral 은 source_type 으로 이관됨(유형이 결정하는 값).
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (source_type_id, name)
 );
@@ -176,17 +178,18 @@ LEFT JOIN link l        ON l.context_item_id = ci.context_item_id;
 INSERT OR IGNORE INTO project (name, description) VALUES ('미분류', '프로젝트 미지정 기본 버킷');
 
 -- messenger 는 메신저 채팅 일반을 의미하며, 현재 적재는 하이웍스 채팅 저장 포맷만 지원한다.
-INSERT OR IGNORE INTO source_type (code, label) VALUES
-  ('messenger',   '메신저'),
-  ('web_doc',     '웹 문서'),
-  ('web_link',    '웹 링크'),
-  ('paper',       '논문'),
-  ('server_info', '서버 정보'),
-  ('file',        '파일'),
-  ('note',        '메모');
+-- is_ephemeral: 메신저 대화만 휘발성(원본이 시간이 지나면 사라짐). 나머지는 영속.
+INSERT OR IGNORE INTO source_type (code, label, is_ephemeral) VALUES
+  ('messenger',   '메신저',    1),
+  ('web_doc',     '웹 문서',   0),
+  ('web_link',    '웹 링크',   0),
+  ('paper',       '논문',      0),
+  ('server_info', '서버 정보', 0),
+  ('file',        '파일',      0),
+  ('note',        '메모',      0);
 
 -- ─────────────────────────────────────────────────────────────
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;

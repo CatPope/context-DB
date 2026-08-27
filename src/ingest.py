@@ -78,9 +78,11 @@ def source_type_id(con, code: str) -> int:
     return row[0]
 
 
-def upsert_source(con, type_code: str, name: str, uri: str,
-                  project_name: str, is_ephemeral: int) -> int:
-    """자연키 (source_type_id, name)로 조회/삽입. 기존이면 project는 유지(리뷰 Issue 1)."""
+def upsert_source(con, type_code: str, name: str, uri: str, project_name: str) -> int:
+    """자연키 (source_type_id, name)로 조회/삽입. 기존이면 project는 유지(리뷰 Issue 1).
+
+    휘발성 여부는 source_type 이 결정하므로 여기서 받지 않는다.
+    """
     st_id = source_type_id(con, type_code)
     row = con.execute(
         "SELECT source_id FROM source WHERE source_type_id=? AND name=?", (st_id, name)
@@ -89,9 +91,8 @@ def upsert_source(con, type_code: str, name: str, uri: str,
         return row[0]
     pid = get_or_create_project(con, project_name)
     cur = con.execute(
-        "INSERT INTO source(project_id, source_type_id, name, uri, is_ephemeral) "
-        "VALUES (?,?,?,?,?)",
-        (pid, st_id, name, uri, is_ephemeral),
+        "INSERT INTO source(project_id, source_type_id, name, uri) VALUES (?,?,?,?)",
+        (pid, st_id, name, uri),
     )
     return cur.lastrowid
 
@@ -198,8 +199,7 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
         if not txts:
             continue
         stats["channels"] += 1
-        src_id = upsert_source(con, SourceType.MESSENGER, channel, cdir, project_name,
-                               is_ephemeral=1)
+        src_id = upsert_source(con, SourceType.MESSENGER, channel, cdir, project_name)
         for txt in txts:
             fpath = os.path.join(cdir, txt)
             stats["files"] += 1
@@ -230,8 +230,7 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
 def ingest_files_root(con, files_root: str, project_name: str) -> int:
     if not files_root or not os.path.isdir(files_root):
         return 0
-    src_id = upsert_source(con, SourceType.FILE, "메신저 받은파일", files_root, project_name,
-                           is_ephemeral=0)
+    src_id = upsert_source(con, SourceType.FILE, "메신저 받은파일", files_root, project_name)
     n = 0
     for entry in os.scandir(files_root):
         if entry.is_file():
@@ -246,8 +245,7 @@ def ingest_files_root(con, files_root: str, project_name: str) -> int:
 def ingest_webdoc(con, url: str, title: str, project_name: str) -> None:
     if not url:
         return
-    src_id = upsert_source(con, SourceType.WEB_DOC, title or "공유 문서", url, project_name,
-                           is_ephemeral=0)
+    src_id = upsert_source(con, SourceType.WEB_DOC, title or "공유 문서", url, project_name)
     add_link_once(con, url=url, title=title or "공유 문서", source_id=src_id)
     con.commit()
 

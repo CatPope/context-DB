@@ -216,9 +216,10 @@ def main():
     check("배타적 아크: 양쪽 동시 부착 거부",
           expect_fail(con, "INSERT INTO link(context_item_id,source_id,url) "
                            "VALUES (?,?,'http://both')", (lcid, sid)))
-    check("CHECK is_ephemeral 거부",
-          expect_fail(con, "INSERT INTO source(project_id,source_type_id,name,is_ephemeral) "
-                           "VALUES (1,1,'ck채널',5)"))
+    # is_ephemeral 은 source 가 아니라 source_type 의 속성(3NF 이관)
+    check("CHECK is_ephemeral 거부(source_type)",
+          expect_fail(con, "INSERT INTO source_type(code,label,is_ephemeral) "
+                           "VALUES ('ck','CK유형',5)"))
 
     print("== 12b. FK 참조 액션(CASCADE / SET NULL) ==")
     # context_item 삭제 → 접합행·링크가 따라 지워지는가
