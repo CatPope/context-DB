@@ -214,17 +214,16 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
                 ext = hashlib.sha1(
                     f"{channel}|{ts}|{speaker}|{content}".encode("utf-8")
                 ).hexdigest()
-                thread_key = f"{channel}|{txt[:-4]}"
                 # OR IGNORE 를 쓰지 않는다 — UNIQUE 뿐 아니라 NOT NULL·CHECK 위반까지
                 # 삼켜서 "조용한 중복"을 "조용한 유실"로 바꿔놓는다. 충돌 대상을 명시한다.
                 cur = con.execute(
                     "INSERT INTO context_item"
-                    "(source_id, person_id, item_type_id, event_ts, content, thread_key, external_id) "
-                    "VALUES (?,?,?,?,?,?,?) "
+                    "(source_id, person_id, item_type_id, event_ts, content, external_id) "
+                    "VALUES (?,?,?,?,?,?) "
                     "ON CONFLICT(source_id, external_id) DO NOTHING",
-                    (src_id, pid, itype[item_type], ts, content, thread_key, ext),
+                    (src_id, pid, itype[item_type], ts, content, ext),
                 )
-                # rowcount는 실제 삽입 1 / OR IGNORE 무시 0 (FTS 트리거 행 미포함) — 정확
+                # rowcount는 실제 삽입 1 / 충돌 무시 0 (FTS 트리거 행 미포함) — 정확
                 if cur.rowcount == 1:
                     stats["inserted"] += 1
                 else:

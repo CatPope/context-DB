@@ -83,7 +83,10 @@ CREATE TABLE IF NOT EXISTS context_item (
                     ON UPDATE CASCADE ON DELETE RESTRICT,
   event_ts        DATETIME,
   content         TEXT NOT NULL,
-  thread_key      TEXT,
+  -- thread_key("채널명|날짜") 제거됨: 채널은 source_id 가, 날짜는 event_ts 가 이미
+  -- 결정하므로 한 컬럼에 둘을 패킹한 1NF 위반이자 중복이었다.
+  -- 스레드 = (source_id, date(event_ts)).
+  --
   -- NOT NULL 필수: nullable 이면 SQLite가 NULL을 서로 distinct 로 취급해
   -- 아래 UNIQUE 가 무력화되고 dedup 이 조용히 무너진다.
   external_id     TEXT NOT NULL,
@@ -215,4 +218,4 @@ INSERT OR IGNORE INTO source_type (code, label, is_ephemeral) VALUES
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 6;
+PRAGMA user_version = 7;

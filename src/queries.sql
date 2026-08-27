@@ -38,13 +38,15 @@ ORDER BY ci.event_ts DESC;
 
 -- ─────────────────────────────────────────────────────────────
 -- Q4. 특정 채널(소스)의 하루 대화 타임라인
+--     스레드 = (source_id, 날짜). 별도 thread_key 컬럼은 두 값을 한 문자열에 패킹한
+--     1NF 위반이자 중복이라 제거했다.
 -- ─────────────────────────────────────────────────────────────
 SELECT ci.event_ts, p.display_name AS author, ci.content
 FROM context_item ci
 JOIN source s      ON s.source_id = ci.source_id
 LEFT JOIN person p ON p.person_id = ci.person_id
 WHERE s.name = :channel
-  AND ci.thread_key = :thread_key   -- 예: '[피지컬 AI]|2026-07-28'
+  AND date(ci.event_ts) = :date     -- 예: '2026-07-28'
 ORDER BY ci.event_ts ASC;
 
 -- ─────────────────────────────────────────────────────────────
