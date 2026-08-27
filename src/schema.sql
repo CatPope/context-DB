@@ -32,8 +32,10 @@ CREATE TABLE IF NOT EXISTS source_type (
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS source (
   source_id      INTEGER PRIMARY KEY,
-  project_id     INTEGER NOT NULL REFERENCES project(project_id),  -- 가변: 재매핑은 UPDATE
-  source_type_id INTEGER NOT NULL REFERENCES source_type(source_type_id),
+  project_id     INTEGER NOT NULL REFERENCES project(project_id)
+                   ON UPDATE CASCADE ON DELETE RESTRICT,   -- 가변: 재매핑은 UPDATE
+  source_type_id INTEGER NOT NULL REFERENCES source_type(source_type_id)
+                   ON UPDATE CASCADE ON DELETE RESTRICT,
   name           TEXT NOT NULL,          -- 채널명/문서명/파일저장소명
   uri            TEXT,                   -- 폴더 절대경로/웹 문서 URL/파일 경로
   is_ephemeral   INTEGER NOT NULL DEFAULT 0 CHECK (is_ephemeral IN (0,1)),
@@ -57,8 +59,10 @@ CREATE TABLE IF NOT EXISTS person (
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS context_item (
   context_item_id INTEGER PRIMARY KEY,
-  source_id       INTEGER NOT NULL REFERENCES source(source_id),
-  person_id       INTEGER REFERENCES person(person_id),
+  source_id       INTEGER NOT NULL REFERENCES source(source_id)
+                    ON UPDATE CASCADE ON DELETE RESTRICT,
+  person_id       INTEGER REFERENCES person(person_id)
+                    ON UPDATE CASCADE ON DELETE SET NULL,
   item_type       TEXT NOT NULL DEFAULT 'message'
                     CHECK (item_type IN ('message','note','excerpt','system','file')),
   event_ts        DATETIME,
@@ -77,8 +81,10 @@ CREATE INDEX IF NOT EXISTS ix_item_person ON context_item(person_id);
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS link (
   link_id         INTEGER PRIMARY KEY,
-  context_item_id INTEGER REFERENCES context_item(context_item_id),
-  source_id       INTEGER REFERENCES source(source_id),
+  context_item_id INTEGER REFERENCES context_item(context_item_id)
+                    ON UPDATE CASCADE ON DELETE CASCADE,
+  source_id       INTEGER REFERENCES source(source_id)
+                    ON UPDATE CASCADE ON DELETE CASCADE,
   url             TEXT NOT NULL,         -- URL 또는 파일 절대경로
   title           TEXT,
   last_checked_at DATETIME,
@@ -95,8 +101,10 @@ CREATE TABLE IF NOT EXISTS tag (
   name   TEXT NOT NULL UNIQUE
 );
 CREATE TABLE IF NOT EXISTS context_item_tag (
-  context_item_id INTEGER NOT NULL REFERENCES context_item(context_item_id),
-  tag_id          INTEGER NOT NULL REFERENCES tag(tag_id),
+  context_item_id INTEGER NOT NULL REFERENCES context_item(context_item_id)
+                    ON UPDATE CASCADE ON DELETE CASCADE,
+  tag_id          INTEGER NOT NULL REFERENCES tag(tag_id)
+                    ON UPDATE CASCADE ON DELETE CASCADE,
   PRIMARY KEY (context_item_id, tag_id)
 );
 CREATE INDEX IF NOT EXISTS ix_cit_tag ON context_item_tag(tag_id);
@@ -170,4 +178,4 @@ INSERT OR IGNORE INTO source_type (code, label) VALUES
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;

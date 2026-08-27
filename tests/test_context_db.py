@@ -205,6 +205,32 @@ def main():
           expect_fail(con, "INSERT INTO source(project_id,source_type_id,name,is_ephemeral) "
                            "VALUES (1,1,'ck채널',5)"))
 
+    print("== 12b. FK 참조 액션(CASCADE / SET NULL) ==")
+    # context_item 삭제 → 접합행·링크가 따라 지워지는가
+    cpid = ing.upsert_person(con, "삭제될사람")
+    cid_c = _mk_item(con, sid, person_id=cpid, content="캐스케이드대상", external_id="__cascade__")
+    con.execute("INSERT OR IGNORE INTO tag(name) VALUES ('캐스케이드태그')")
+    ctid = con.execute("SELECT tag_id FROM tag WHERE name='캐스케이드태그'").fetchone()[0]
+    con.execute("INSERT INTO context_item_tag(context_item_id,tag_id) VALUES (?,?)", (cid_c, ctid))
+    con.execute("INSERT INTO link(context_item_id,url) VALUES (?,'http://cascade')", (cid_c,))
+    con.commit()
+    con.execute("DELETE FROM context_item WHERE context_item_id=?", (cid_c,))
+    con.commit()
+    left_t = con.execute("SELECT count(*) FROM context_item_tag WHERE context_item_id=?",
+                         (cid_c,)).fetchone()[0]
+    left_l = con.execute("SELECT count(*) FROM link WHERE context_item_id=?", (cid_c,)).fetchone()[0]
+    check("context_item 삭제 → 접합행·link CASCADE", left_t == 0 and left_l == 0,
+          f"tag={left_t}, link={left_l}")
+
+    # person 삭제 → 맥락은 남고 발화자만 비워지는가
+    spid = ing.upsert_person(con, "널이될사람")
+    cid_n = _mk_item(con, sid, person_id=spid, content="셋널대상", external_id="__setnull__")
+    con.execute("DELETE FROM person WHERE person_id=?", (spid,))
+    con.commit()
+    pv = con.execute("SELECT person_id FROM context_item WHERE context_item_id=?",
+                     (cid_n,)).fetchone()[0]
+    check("person 삭제 → context_item.person_id SET NULL", pv is None, f"person_id={pv}")
+
     print("== 13. 뷰 동작 ==")
     check("v_project_sources 반환", con.execute("SELECT count(*) FROM v_project_sources").fetchone()[0] >= 1)
     check("v_recent_context 반환", con.execute("SELECT count(*) FROM v_recent_context").fetchone()[0] >= 1)
