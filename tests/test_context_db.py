@@ -199,6 +199,12 @@ def main():
     check("CHECK item_type 거부",
           expect_fail(con, "INSERT INTO context_item(source_id,item_type,content,external_id) "
                            "VALUES (?, 'bogus','x','ck1')", (sid,)))
+    # ON CONFLICT 로 충돌 대상을 명시했으므로 NOT NULL 위반은 삼켜지지 않고 올라와야 한다.
+    # (OR IGNORE 였다면 조용히 무시돼 행이 유실된다)
+    check("ON CONFLICT 절이 external_id NOT NULL 위반을 삼키지 않음",
+          expect_fail(con, "INSERT INTO context_item(source_id,content,external_id) "
+                           "VALUES (?,'x',NULL) ON CONFLICT(source_id,external_id) DO NOTHING",
+                      (sid,)))
     check("CHECK link 귀속 없음 거부",
           expect_fail(con, "INSERT INTO link(url) VALUES ('http://x')"))
     check("CHECK is_ephemeral 거부",

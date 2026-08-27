@@ -68,7 +68,9 @@ CREATE TABLE IF NOT EXISTS context_item (
   event_ts        DATETIME,
   content         TEXT NOT NULL,
   thread_key      TEXT,
-  external_id     TEXT,
+  -- NOT NULL 필수: nullable 이면 SQLite가 NULL을 서로 distinct 로 취급해
+  -- 아래 UNIQUE 가 무력화되고 dedup 이 조용히 무너진다.
+  external_id     TEXT NOT NULL,
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (source_id, external_id)
 );
@@ -178,4 +180,4 @@ INSERT OR IGNORE INTO source_type (code, label) VALUES
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
