@@ -103,6 +103,17 @@ def _clip(s: str, n: int = 70) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def _resolved(rows, cols, name, cfg):
+    """토큰 표기로 저장된 경로 컬럼을 실제 경로로 되돌린다.
+
+    DB 에는 {chat_root}/... 처럼 이식 가능한 형태로 저장하고, 출력은 종전대로
+    절대경로를 내보낸다 — --json 필드명과 의미가 유지된다.
+    """
+    i = cols.index(name)
+    return [tuple(db.resolve_path(v, cfg) if j == i and isinstance(v, str) else v
+                  for j, v in enumerate(r)) for r in rows]
+
+
 def db_connect(db_path):
     return db.connect(db_path)
 
@@ -289,7 +300,8 @@ def cmd_timeline(args, cfg):
 
 
 def cmd_by_tag(args, cfg):
-    con = db_connect(resolve(args, cfg)["db"])
+    r = resolve(args, cfg)
+    con = db_connect(r["db"])
     try:
         rows = con.execute(
             "SELECT ci.event_ts, ci.content, l.url FROM context_item ci "
@@ -297,7 +309,8 @@ def cmd_by_tag(args, cfg):
             "JOIN tag g ON g.tag_id=t.tag_id "
             "LEFT JOIN link l ON l.context_item_id=ci.context_item_id "
             "WHERE g.name=? ORDER BY ci.event_ts DESC", (args.tag,)).fetchall()
-        emit(rows, ["event_ts", "content", "url"], args.json)
+        cols = ["event_ts", "content", "url"]
+        emit(_resolved(rows, cols, "url", r), cols, args.json)
     finally:
         con.close()
 
@@ -346,7 +359,8 @@ def cmd_sources(args, cfg):
 
 
 def cmd_links(args, cfg):
-    con = db_connect(resolve(args, cfg)["db"])
+    r = resolve(args, cfg)
+    con = db_connect(r["db"])
     try:
         sql = ("SELECT st.label, s.name, l.title, l.url FROM link l "
                "JOIN source s ON s.source_id=l.source_id "
@@ -355,8 +369,8 @@ def cmd_links(args, cfg):
         if args.type:
             sql += " AND st.code=?"; params.append(args.type)
         sql += " ORDER BY st.label, l.title LIMIT ?"; params.append(args.limit)
-        emit(con.execute(sql, params).fetchall(),
-             ["type", "source", "title", "url"], args.json)
+        cols = ["type", "source", "title", "url"]
+        emit(_resolved(con.execute(sql, params).fetchall(), cols, "url", r), cols, args.json)
     finally:
         con.close()
 

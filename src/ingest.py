@@ -41,6 +41,8 @@ from db import (  # noqa: F401
     ItemType,
     SourceType,
     connect,
+    pack_path,
+    resolve_path,
 )
 
 # 콘솔 인코딩(Windows cp949) 문제 방지
@@ -197,6 +199,7 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
         print(f"[경고] 채팅 루트 없음: {chat_root}")
         return stats
     itype = item_type_map(con)
+    roots = {"chat_root": chat_root}   # uri 를 {chat_root}/... 토큰으로 저장하기 위한 기준
     for channel in sorted(os.listdir(chat_root)):
         cdir = os.path.join(chat_root, channel)
         if not os.path.isdir(cdir):
@@ -205,7 +208,8 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
         if not txts:
             continue
         stats["channels"] += 1
-        src_id = upsert_source(con, SourceType.MESSENGER, channel, cdir, project_name)
+        src_id = upsert_source(con, SourceType.MESSENGER, channel,
+                               pack_path(cdir, roots), project_name)
         for txt in txts:
             fpath = os.path.join(cdir, txt)
             stats["files"] += 1
@@ -235,13 +239,15 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
 def ingest_files_root(con, files_root: str, project_name: str) -> int:
     if not files_root or not os.path.isdir(files_root):
         return 0
-    src_id = upsert_source(con, SourceType.FILE, "메신저 받은파일", files_root, project_name)
+    roots = {"files_root": files_root}
+    src_id = upsert_source(con, SourceType.FILE, "메신저 받은파일",
+                           pack_path(files_root, roots), project_name)
     n = 0
     for entry in os.scandir(files_root):
         if entry.is_file():
             mtime = datetime.fromtimestamp(entry.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            add_link_once(con, url=entry.path, title=entry.name, source_id=src_id,
-                          last_checked_at=mtime)
+            add_link_once(con, url=pack_path(entry.path, roots), title=entry.name,
+                          source_id=src_id, last_checked_at=mtime)
             n += 1
     con.commit()
     return n

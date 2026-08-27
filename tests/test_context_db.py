@@ -322,7 +322,35 @@ def main():
     r2 = run("by-tag", "인사", "--json")
     check("tag→by-tag 왕복", ok_json(r2) and len(json.loads(r2.stdout)) >= 1, r2.stdout[:120])
 
-    print("== 15. 이식성: 진입점 + 플랫폼별 상시 적재 계획 ==")
+    print("== 15. 이식성: 경로 토큰(pack/resolve) ==")
+    import db as dbmod  # noqa: E402
+    rc = {"chat_root": "C:/Users/me/채팅저장", "files_root": "C:/Users/me/받은파일"}
+
+    check("절대경로 → 토큰",
+          dbmod.pack_path("C:/Users/me/채팅저장/AI팀", rc) == "{chat_root}/AI팀",
+          dbmod.pack_path("C:/Users/me/채팅저장/AI팀", rc))
+    check("구분자 \\ 도 정규화해 토큰화",
+          dbmod.pack_path("C:\\Users\\me\\받은파일\\a.pdf", rc) == "{files_root}/a.pdf",
+          dbmod.pack_path("C:\\Users\\me\\받은파일\\a.pdf", rc))
+    check("루트 자기 자신 → 토큰만",
+          dbmod.pack_path("C:/Users/me/받은파일", rc) == "{files_root}")
+    check("왕복(pack→resolve)이 원본 경로 복원",
+          dbmod.resolve_path(dbmod.pack_path("C:/Users/me/채팅저장/AI팀", rc), rc)
+          == "C:/Users/me/채팅저장/AI팀")
+    check("URL 은 토큰화하지 않고 통과",
+          dbmod.pack_path("https://x.test/d/1", rc) == "https://x.test/d/1"
+          and dbmod.resolve_path("https://x.test/d/1", rc) == "https://x.test/d/1")
+    check("루트 밖 경로는 그대로(정규화만)",
+          dbmod.pack_path("D:/elsewhere/x.txt", rc) == "D:/elsewhere/x.txt")
+    # 다른 PC 로 옮긴 상황: 같은 토큰이 그 PC 의 루트로 해소돼야 한다
+    other = {"chat_root": "/home/u/chats", "files_root": "/home/u/files"}
+    check("다른 PC 의 config 로 해소(이식성 핵심)",
+          dbmod.resolve_path("{chat_root}/AI팀", other) == "/home/u/chats/AI팀",
+          dbmod.resolve_path("{chat_root}/AI팀", other))
+    check("루트 미설정 시 토큰을 그대로 노출(조용히 비우지 않음)",
+          dbmod.resolve_path("{files_root}/a.pdf", {}) == "{files_root}/a.pdf")
+
+    print("== 15b. 이식성: 진입점 + 플랫폼별 상시 적재 계획 ==")
     sys.path.insert(0, SRC)
     import cli as climod  # noqa: E402
 

@@ -10,6 +10,7 @@ schema.sql 시드와 중복되는 코드 문자열도 여기 상수로 모은다
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +20,7 @@ DEFAULT_DB = os.path.join(ROOT_DIR, "context.db")
 
 # schema.sql 의 `PRAGMA user_version` 값과 반드시 일치해야 한다.
 # 스키마를 구조적으로 바꿀 때마다 양쪽을 함께 올린다.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # 버전 도입 이전(user_version=0)에 만들어진 DB를 현행으로 인정하는 값.
 # SCHEMA_VERSION 이 1을 넘어가는 순간 이 경로는 자동으로 닫히고,
@@ -53,6 +54,65 @@ class ItemType:
 
 class SchemaVersionError(RuntimeError):
     """DB의 스키마 버전이 코드가 기대하는 버전과 다를 때."""
+
+
+# ─────────────────────────── 경로 토큰 ───────────────────────────
+# source.uri / link.url 은 머신 고유 절대경로 대신 루트 토큰으로 저장한다.
+#   {chat_root}/AI 플랫폼 팀   ·   {files_root}/보고서.pdf   ·   https://... (그대로)
+# DB 를 다른 PC 로 옮겨도 그 PC 의 config 로 해소되므로 경로가 죽지 않는다.
+# skill 배포의 <context-DB-path> 자리표시자와 같은 관용구다.
+PATH_TOKENS = ("chat_root", "files_root")
+
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+
+
+def is_url(value: str) -> bool:
+    """스킴이 붙은 URL 이면 True. 경로 토큰화 대상에서 제외된다."""
+    return bool(value) and bool(_SCHEME_RE.match(value))
+
+
+def _norm(p: str) -> str:
+    """구분자를 / 로 정규화하고 끝의 구분자를 제거한다."""
+    return p.replace("\\", "/").rstrip("/")
+
+
+def pack_path(value: str, cfg: dict) -> str:
+    """절대경로를 루트 토큰 표기로 바꾼다. URL·미매칭 경로는 그대로 둔다.
+
+    가장 긴 루트가 우선한다(한 루트가 다른 루트의 하위일 때 올바르게 잡히도록).
+    """
+    if not value or is_url(value):
+        return value
+    v = _norm(value)
+    roots = sorted(
+        ((k, _norm(str(cfg[k]))) for k in PATH_TOKENS if cfg.get(k)),
+        key=lambda kv: len(kv[1]), reverse=True,
+    )
+    for key, root in roots:
+        if v == root:
+            return "{%s}" % key
+        if v.startswith(root + "/"):
+            return "{%s}/%s" % (key, v[len(root) + 1:])
+    return v
+
+
+def resolve_path(value: str, cfg: dict) -> str:
+    """루트 토큰 표기를 실제 절대경로로 되돌린다.
+
+    config 에 해당 루트가 없으면 토큰을 그대로 노출한다 — 조용히 빈 문자열로 만들면
+    "루트 미설정"과 "파일이 최상위에 있음"을 구분할 수 없게 된다.
+    """
+    if not value or is_url(value):
+        return value
+    for key in PATH_TOKENS:
+        token = "{%s}" % key
+        if value == token or value.startswith(token + "/"):
+            root = cfg.get(key)
+            if not root:
+                return value
+            rest = value[len(token):].lstrip("/")
+            return _norm(root) + ("/" + rest if rest else "")
+    return value
 
 
 def _apply_schema(con: sqlite3.Connection, schema_path: str) -> None:

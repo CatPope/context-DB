@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS source (
   source_type_id INTEGER NOT NULL REFERENCES source_type(source_type_id)
                    ON UPDATE CASCADE ON DELETE RESTRICT,
   name           TEXT NOT NULL,          -- 채널명/문서명/파일저장소명
-  uri            TEXT,                   -- 폴더 절대경로/웹 문서 URL/파일 경로
+  -- 루트 토큰 표기로 저장한다: {chat_root}/<채널> · {files_root} · https://...
+  -- 머신 고유 절대경로를 넣지 않으므로 DB를 다른 PC로 옮겨도 경로가 죽지 않는다.
+  -- 해소는 src/db.py 의 resolve_path() (config 의 루트 값 대입).
+  uri            TEXT,
   -- is_ephemeral 은 source_type 으로 이관됨(유형이 결정하는 값).
   created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (source_type_id, name)
@@ -106,7 +109,8 @@ CREATE TABLE IF NOT EXISTS link (
                     ON UPDATE CASCADE ON DELETE CASCADE,
   source_id       INTEGER REFERENCES source(source_id)
                     ON UPDATE CASCADE ON DELETE CASCADE,
-  url             TEXT NOT NULL,         -- URL 또는 파일 절대경로
+  -- source.uri 와 같은 루트 토큰 표기: {files_root}/<파일명> 또는 https://...
+  url             TEXT NOT NULL,
   title           TEXT,
   last_checked_at DATETIME,
   -- 배타적 아크: 맥락 항목 또는 소스 중 정확히 한쪽에만 부착된다.
@@ -218,4 +222,4 @@ INSERT OR IGNORE INTO source_type (code, label, is_ephemeral) VALUES
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 7;
+PRAGMA user_version = 8;
