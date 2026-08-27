@@ -449,8 +449,34 @@ def main():
                         capture_output=True, text=True, encoding="utf-8", env=env)
     check("낡은 스키마 → rc=1", rs.returncode == 1, f"rc={rs.returncode}")
     check("낡은 스키마 → 트레이스백 아닌 안내 메시지",
-          "[오류]" in rs.stderr and "Traceback" not in rs.stderr and "재구축" in rs.stderr,
-          rs.stderr[:160])
+          "[오류]" in rs.stderr and "Traceback" not in rs.stderr, rs.stderr[:160])
+    # 원본 로그가 1개월 후 사라져 DB 가 유일본인 맥락이 많다(ADR-017).
+    # 버전 불일치 안내가 DB 삭제를 시키면 복구 불가능한 데이터를 잃는다.
+    check("낡은 스키마 안내가 DB 삭제를 시키지 않고 백업을 먼저 시킴",
+          "backup" in rs.stderr and "삭제하지 마세요" in rs.stderr
+          and "del \"" not in rs.stderr, rs.stderr[:300])
+
+    print("== 15e. 백업 ==")
+    bdir = os.path.join(tmp, "bk")
+    rb = subprocess.run([sys.executable, cli, "--db", db, "backup", "--to", bdir],
+                        capture_output=True, text=True, encoding="utf-8", env=env)
+    snaps = sorted(f for f in os.listdir(bdir)) if os.path.isdir(bdir) else []
+    check("backup 생성", rb.returncode == 0 and len(snaps) == 1, rb.stdout[:120] + rb.stderr[:120])
+    if snaps:
+        bcon = sqlite3.connect(os.path.join(bdir, snaps[0]))
+        bn = bcon.execute("SELECT count(*) FROM context_item").fetchone()[0]
+        src_n = sqlite3.connect(db).execute("SELECT count(*) FROM context_item").fetchone()[0]
+        chk = bcon.execute("PRAGMA integrity_check").fetchone()[0]
+        bcon.close()
+        check("백업본 건수가 원본과 일치", bn == src_n, f"{bn} vs {src_n}")
+        check("백업본 무결성 ok", chk == "ok", chk)
+    # --keep: 오래된 스냅샷 정리
+    for i in range(3):
+        open(os.path.join(bdir, f"context-2020010{i}-000000.db"), "w").close()
+    subprocess.run([sys.executable, cli, "--db", db, "backup", "--to", bdir, "--keep", "2"],
+                   capture_output=True, text=True, encoding="utf-8", env=env)
+    left = sorted(f for f in os.listdir(bdir))
+    check("--keep 2 → 최근 2개만 남음", len(left) == 2, left)
 
     # 래퍼를 복사(심링크가 아니라)해 옮기면 원인을 알 수 있는 메시지가 나와야 한다.
     if os.path.exists(posix_entry):

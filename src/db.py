@@ -159,10 +159,40 @@ def _check_version(con: sqlite3.Connection, db_path: str) -> None:
         return
     raise SchemaVersionError(
         f"DB 스키마 버전 불일치: {db_path} 는 v{v}, 코드는 v{SCHEMA_VERSION} 을 기대합니다.\n"
-        f"스키마가 바뀌었으므로 이 DB는 그대로 쓸 수 없습니다. 재구축하세요:\n"
-        f"  1) .omc/plans/manual-state.json 으로 프로젝트 배정·태그를 백업했는지 확인\n"
-        f"  2) del \"{db_path}\"  →  context-db init  →  context-db ingest  →  수동 상태 복원"
+        f"\n"
+        f"  ** 이 DB 를 삭제하지 마세요. ** 메신저 원본 로그는 약 1개월 후 사라지므로,\n"
+        f"  이 DB 에만 남아 있는 맥락이 상당수입니다(ADR-017). 재적재로 복원되지 않습니다.\n"
+        f"\n"
+        f"  1) 먼저 백업:  context-db backup\n"
+        f"  2) 그다음 조치를 결정하세요 — 코드를 이 DB 에 맞는 버전으로 되돌리거나,\n"
+        f"     스키마 변경분을 이 DB 에 적용하는 마이그레이션이 필요합니다.\n"
+        f"     (자동 마이그레이션 경로는 아직 없습니다. ADR §7 참조)"
     )
+
+
+def backup(db_path: str, dest: str) -> tuple:
+    """SQLite 온라인 백업 API 로 DB 를 통째로 복사한다.
+
+    파일 복사가 아니라 백업 API 를 쓰는 이유: watch/스케줄러가 동시에 쓰고 있어도
+    일관된 스냅샷이 나온다. 파일 복사는 쓰기 도중이면 깨진 사본을 만들 수 있다.
+
+    returns: (경로, 바이트 수, context_item 건수)
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+    src = sqlite3.connect(f"file:{db_path.replace(os.sep, '/')}?mode=ro", uri=True)
+    try:
+        dst = sqlite3.connect(dest)
+        try:
+            src.backup(dst)
+            n = dst.execute("SELECT count(*) FROM context_item").fetchone()[0]
+            ok = dst.execute("PRAGMA integrity_check").fetchone()[0]
+            if ok != "ok":
+                raise RuntimeError(f"백업본 무결성 검사 실패: {ok}")
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    return dest, os.path.getsize(dest), n
 
 
 def connect(db_path: str, schema_path: str | None = None) -> sqlite3.Connection:

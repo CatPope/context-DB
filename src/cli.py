@@ -277,6 +277,35 @@ def cmd_rules(args, cfg):
         con.close()
 
 
+def cmd_backup(args, cfg):
+    """DB 스냅샷을 남긴다. 맥락의 상당 부분은 원본이 이미 사라져 이 DB 가 유일본이다(ADR-017)."""
+    r = resolve(args, cfg)
+    src = r["db"]
+    if not os.path.exists(src):
+        print(f"[backup] DB 를 찾지 못함: {src}")
+        raise SystemExit(1)
+    # --to 가 .db 로 끝나면 파일명, 아니면 폴더로 본다(아직 없는 경로여도 동일하게 판정).
+    # os.path.isdir 로만 보면 없는 폴더를 파일로 오인해 'backups' 라는 DB 파일을 만든다.
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    dest = args.to
+    if not dest:
+        dest = os.path.join(ROOT, "backup", f"context-{stamp}.db")
+    elif not dest.lower().endswith(".db"):
+        dest = os.path.join(dest, f"context-{stamp}.db")
+    path, size, n = db.backup(src, dest)
+    print(f"[backup] {n}건 · {size/1024/1024:.1f}MB → {path}")
+
+    if args.keep:
+        folder = os.path.dirname(os.path.abspath(path))
+        snaps = sorted(f for f in os.listdir(folder)
+                       if f.startswith("context-") and f.endswith(".db"))
+        old = snaps[:-args.keep] if len(snaps) > args.keep else []
+        for f in old:
+            os.remove(os.path.join(folder, f))
+        if old:
+            print(f"[backup] 오래된 스냅샷 {len(old)}개 삭제(최근 {args.keep}개 유지)")
+
+
 def cmd_rename_project(args, cfg):
     """프로젝트명 오타 수정. new_name 이 이미 존재하면 그 프로젝트로 소속 소스를 옮기고
     빈 old_name 프로젝트는 삭제(병합)한다. 존재하지 않으면 단순 이름 변경."""
@@ -692,6 +721,13 @@ def build_parser():
     sp.add_argument("--dry-run", action="store_true",
                     help="--match 와 함께: 무엇이 바뀔지만 보여주고 실제로 바꾸지 않음")
     sp.set_defaults(func=cmd_set_project)
+
+    sp = sub.add_parser("backup", help="DB 스냅샷 저장(원본이 사라진 맥락이 많아 유일본이다)")
+    sp.add_argument("--to", default=None,
+                    help="저장 경로. .db 로 끝나면 파일명, 아니면 폴더로 본다. 미지정 시 <저장소>/backup/context-<시각>.db")
+    sp.add_argument("--keep", type=int, default=None,
+                    help="같은 폴더에서 최근 N개만 남기고 오래된 스냅샷 삭제")
+    sp.set_defaults(func=cmd_backup)
 
     sp = sub.add_parser("rules", help="프로젝트 자동 배정 규칙 확인 + 기존 소스에 적용해보기(변경 없음)")
     sp.add_argument("--json", action="store_true", help="JSON 형식으로 출력")
