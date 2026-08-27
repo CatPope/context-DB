@@ -101,7 +101,8 @@ def main():
     check("멀티라인 결합(줄바꿈 포함)", "\n" in ml and "여러 줄 메시지입니다" in ml, repr(ml))
 
     print("== 4. item_type 분류 ==")
-    types = dict(con.execute("SELECT item_type, count(*) FROM context_item GROUP BY item_type").fetchall())
+    types = dict(con.execute("SELECT t.code, count(*) FROM context_item ci "
+                             "JOIN item_type t USING(item_type_id) GROUP BY t.code").fetchall())
     check("system 1건(다운로드 알림)", types.get("system") == 1, types)
     check("file 1건(report.pdf)", types.get("file") == 1, types)
     check("message 4건", types.get("message") == 4, types)
@@ -123,7 +124,7 @@ def main():
 
     print("== 5c. FTS 트리거(임시 행, 원본 6행 불변) ==")
     tsrc = con.execute("SELECT source_id FROM source LIMIT 1").fetchone()[0]
-    tid = _mk_item(con, tsrc, item_type=ing.ItemType.MESSAGE,
+    tid = _mk_item(con, tsrc, item_type_id=ing.item_type_map(con)[ing.ItemType.MESSAGE],
                    event_ts="2026-08-01 23:59:00", content="임시검색어ZZZ",
                    external_id="__tmp__")
     ai = con.execute("SELECT count(*) FROM context_fts WHERE context_fts MATCH '임시검색어ZZZ'").fetchone()[0]
@@ -194,11 +195,15 @@ def main():
 
     print("== 12. 제약 강제(FK/CHECK) ==")
     sid = con.execute("SELECT source_id FROM source WHERE name=?", (CHANNEL,)).fetchone()[0]
+    # item_type_id 를 명시 공급한다. 생략하면 NOT NULL/DEFAULT 쪽이 먼저 걸려서
+    # 이 테스트가 FK 가 아닌 다른 제약을 검증하게 되고, expect_fail 은 IntegrityError 를
+    # 구분하지 않으므로 그 사실이 PASS 뒤에 숨는다.
     check("FK 강제: 없는 source_id 거부",
-          expect_fail(con, "INSERT INTO context_item(source_id,content,external_id) VALUES (999999,'x','fk')"))
-    check("CHECK item_type 거부",
-          expect_fail(con, "INSERT INTO context_item(source_id,item_type,content,external_id) "
-                           "VALUES (?, 'bogus','x','ck1')", (sid,)))
+          expect_fail(con, "INSERT INTO context_item(source_id,item_type_id,content,external_id) "
+                           "VALUES (999999,1,'x','fk')"))
+    check("FK 강제: 없는 item_type_id 거부",
+          expect_fail(con, "INSERT INTO context_item(source_id,item_type_id,content,external_id) "
+                           "VALUES (?,999999,'x','ck1')", (sid,)))
     # ON CONFLICT 로 충돌 대상을 명시했으므로 NOT NULL 위반은 삼켜지지 않고 올라와야 한다.
     # (OR IGNORE 였다면 조용히 무시돼 행이 유실된다)
     check("ON CONFLICT 절이 external_id NOT NULL 위반을 삼키지 않음",

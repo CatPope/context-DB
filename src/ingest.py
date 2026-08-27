@@ -97,6 +97,11 @@ def upsert_source(con, type_code: str, name: str, uri: str, project_name: str) -
     return cur.lastrowid
 
 
+def item_type_map(con) -> dict:
+    """code → item_type_id 매핑. 5행짜리 룩업이므로 적재 시작 시 한 번만 읽는다."""
+    return {code: tid for tid, code in con.execute("SELECT item_type_id, code FROM item_type")}
+
+
 def upsert_person(con, display_name: str):
     if not display_name:
         return None
@@ -191,6 +196,7 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
     if not os.path.isdir(chat_root):
         print(f"[경고] 채팅 루트 없음: {chat_root}")
         return stats
+    itype = item_type_map(con)
     for channel in sorted(os.listdir(chat_root)):
         cdir = os.path.join(chat_root, channel)
         if not os.path.isdir(cdir):
@@ -213,10 +219,10 @@ def ingest_chat_root(con, chat_root: str, project_name: str) -> dict:
                 # 삼켜서 "조용한 중복"을 "조용한 유실"로 바꿔놓는다. 충돌 대상을 명시한다.
                 cur = con.execute(
                     "INSERT INTO context_item"
-                    "(source_id, person_id, item_type, event_ts, content, thread_key, external_id) "
+                    "(source_id, person_id, item_type_id, event_ts, content, thread_key, external_id) "
                     "VALUES (?,?,?,?,?,?,?) "
                     "ON CONFLICT(source_id, external_id) DO NOTHING",
-                    (src_id, pid, item_type, ts, content, thread_key, ext),
+                    (src_id, pid, itype[item_type], ts, content, thread_key, ext),
                 )
                 # rowcount는 실제 삽입 1 / OR IGNORE 무시 0 (FTS 트리거 행 미포함) — 정확
                 if cur.rowcount == 1:

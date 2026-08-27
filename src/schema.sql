@@ -47,7 +47,19 @@ CREATE TABLE IF NOT EXISTS source (
 CREATE INDEX IF NOT EXISTS ix_source_project ON source(project_id);
 
 -- ─────────────────────────────────────────────────────────────
--- 4) PERSON : 발화자. MVP는 display_name 동일 = 동일인으로 취급.
+-- 4) ITEM_TYPE : 맥락 항목 유형 조회 테이블.
+--    source_type 과 같은 성격의 enum 이므로 같은 방식(룩업 테이블)으로 모델링한다.
+--    id 는 시드에서 명시적으로 못박는다 — context_item.item_type_id 의 DEFAULT 가
+--    특정 id 를 가리키므로 auto rowid 배정에 기대면 깨진다.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS item_type (
+  item_type_id INTEGER PRIMARY KEY,
+  code         TEXT NOT NULL UNIQUE,   -- message, note, excerpt, system, file
+  label        TEXT NOT NULL
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- 5) PERSON : 발화자. MVP는 display_name 동일 = 동일인으로 취급.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS person (
   person_id    INTEGER PRIMARY KEY,
@@ -56,7 +68,7 @@ CREATE TABLE IF NOT EXISTS person (
 );
 
 -- ─────────────────────────────────────────────────────────────
--- 5) CONTEXT_ITEM : 맥락 최소 단위(대화 1건·메모·발췌). 전문검색 대상.
+-- 6) CONTEXT_ITEM : 맥락 최소 단위(대화 1건·메모·발췌). 전문검색 대상.
 --    external_id = dedup 자연키(sha1). UNIQUE(source_id, external_id)로 멱등 재적재.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS context_item (
@@ -65,8 +77,10 @@ CREATE TABLE IF NOT EXISTS context_item (
                     ON UPDATE CASCADE ON DELETE RESTRICT,
   person_id       INTEGER REFERENCES person(person_id)
                     ON UPDATE CASCADE ON DELETE SET NULL,
-  item_type       TEXT NOT NULL DEFAULT 'message'
-                    CHECK (item_type IN ('message','note','excerpt','system','file')),
+  -- DEFAULT 1(=message)을 반드시 유지한다. 빼면 item_type_id 누락 시 FK 가 아니라
+  -- NOT NULL 이 먼저 걸려서, FK 를 검증하던 테스트가 조용히 NOT NULL 테스트로 바뀐다.
+  item_type_id    INTEGER NOT NULL DEFAULT 1 REFERENCES item_type(item_type_id)
+                    ON UPDATE CASCADE ON DELETE RESTRICT,
   event_ts        DATETIME,
   content         TEXT NOT NULL,
   thread_key      TEXT,
@@ -81,7 +95,7 @@ CREATE INDEX IF NOT EXISTS ix_item_ts     ON context_item(event_ts);
 CREATE INDEX IF NOT EXISTS ix_item_person ON context_item(person_id);
 
 -- ─────────────────────────────────────────────────────────────
--- 6) LINK : 외부 자원 URL/파일. 맥락 항목 또는 소스 단독에 부착.
+-- 7) LINK : 외부 자원 URL/파일. 맥락 항목 또는 소스 단독에 부착.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS link (
   link_id         INTEGER PRIMARY KEY,
@@ -107,7 +121,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_link_source
   ON link(source_id, url)       WHERE source_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────
--- 7) TAG / 8) CONTEXT_ITEM_TAG : 태그 M:N
+-- 8) TAG / 9) CONTEXT_ITEM_TAG : 태그 M:N
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tag (
   tag_id INTEGER PRIMARY KEY,
@@ -178,6 +192,15 @@ LEFT JOIN link l        ON l.context_item_id = ci.context_item_id;
 INSERT OR IGNORE INTO project (name, description) VALUES ('미분류', '프로젝트 미지정 기본 버킷');
 
 -- messenger 는 메신저 채팅 일반을 의미하며, 현재 적재는 하이웍스 채팅 저장 포맷만 지원한다.
+-- item_type: id 를 명시한다. context_item.item_type_id 의 DEFAULT 1 이 message 를
+-- 가리키므로 auto rowid 배정에 의존하면 안 된다.
+INSERT OR IGNORE INTO item_type (item_type_id, code, label) VALUES
+  (1, 'message', '메시지'),
+  (2, 'note',    '메모'),
+  (3, 'excerpt', '발췌'),
+  (4, 'system',  '시스템'),
+  (5, 'file',    '파일');
+
 -- is_ephemeral: 메신저 대화만 휘발성(원본이 시간이 지나면 사라짐). 나머지는 영속.
 INSERT OR IGNORE INTO source_type (code, label, is_ephemeral) VALUES
   ('messenger',   '메신저',    1),
@@ -192,4 +215,4 @@ INSERT OR IGNORE INTO source_type (code, label, is_ephemeral) VALUES
 -- 스키마 버전 — 맨 마지막에 찍는다(앞 DDL이 실패하면 도장이 남지 않도록).
 -- src/db.py 의 SCHEMA_VERSION 과 반드시 함께 올린다.
 -- ─────────────────────────────────────────────────────────────
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
