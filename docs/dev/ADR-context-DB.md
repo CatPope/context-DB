@@ -7,8 +7,8 @@
 | 구분 | 내용 |
 |---|---|
 | 과제 | context-DB — 에이전트 맥락 저장·질의 DB (SQLite + FTS5) |
-| 작성일자 | 2026-08-10 (최종 갱신 2026-08-11) |
-| 상태 | MVP + `src/` 재구성 + 용어 일반화 + `setup` 명령 + `set-project` 일반화/`rename-project` 신설 · 테스트 43/43 PASS · 커밋 완료 |
+| 작성일자 | 2026-08-10 (최종 갱신 2026-08-27) |
+| 상태 | MVP + `src/` 재구성 + 용어 일반화 + `setup` 명령 + `set-project` 일반화/`rename-project` 신설 · **DB 정규화 리팩터(ADR-014)** · 테스트 48/48 PASS · 커밋 완료 |
 | 데이터 | 사내·사적 대화 포함 → **로컬 전용, 외부 전송 금지** |
 
 ---
@@ -23,7 +23,7 @@
 - Git: `main` 브랜치, 원격 `origin`=`github.com/CatPope/context-DB` **동기화됨**(HEAD=`a2e016c` 병합 커밋). `196d57e`(MVP 스크럽본) → 로컬 재구성·용어·`setup`(`bc4fe16`)과 원격 직접 커밋(설계서 리네임·`맥락 정보.md` 삭제 등)을 병합.
 - 구조: 소스는 **`src/`** 로 이동(`cli.py`/`ingest.py`/`schema.sql`/`queries.sql`). 진입점 `context-db.bat` → `src\cli.py`.
 - 구현: `src/*`·`context-db.bat`·스케줄러 배치·`skill`·테스트 완비. **`context-db setup`** 으로 skill 배포 + 상시 적재 등록 일원화.
-- 실 DB: `context.db` = context_item 611 · source 21 · person 16 · link 179 · `fts_in_sync=True` · `orphan=0` (용어 마이그레이션 반영: `web_doc`/`메신저`).
+- 실 DB: `context.db` = context_item 833 · source 22 · person 17 · link 90 · `fts_in_sync=True` · `orphan=0` (2026-08-27 ADR-014 재구축본).
 - 백그라운드: 세션용 `context-db watch` + 상시용 작업 스케줄러(`setup --background` 또는 `scheduler-register.bat`).
 - 프라이버시: `context.db`, `context-db.config.json`은 `.gitignore`로 커밋 차단(검증됨).
 
@@ -33,12 +33,14 @@
 - 2026-08-11(병합): 원격 직접 커밋과 분기 발생 → `a2e016c` 로 병합. **`src/` 레이아웃 유지**(사용자 결정), 원격 결정 수용(상세설계서 → `docs/dev/context-db-상세설계서.md`, `docs/맥락 정보.md` 삭제), 용어는 완전본(`web_doc`) 채택. 리네임 참조 일괄 갱신 후 push 완료.
 - 2026-08-11(발표 준비): OJT 발표 원고(`docs/presentation/context-db-발표원고.md`) 작성 중 받은 심화 질문(FTS5/한글 품질, 태그 역할, 프로젝트·소스 동적 유지, NULL 처리, 벡터DB 전환 계획, `--help` 지원, 미분류/오타 프로젝트 수정)에 코드 기준으로 답변 → `docs/dev/질의응답.md` 로 문서화. 이 과정에서 `set-project`가 메신저 타입에만 하드코딩된 제약을 발견 → ADR-013.
 - 2026-08-11(ADR-013): `cli.py` 전 옵션에 `--help` 문구 채움 · `set-project` 소스 타입 제약 제거(+`--type` 모호성 해소) · `rename-project` 신설(오타 수정/병합) · 회귀 테스트 3건 추가 · README/skill 문서 갱신 · skill 재배포. 테스트 40→43/43.
+- 2026-08-27(ADR-014): DB 정규화 리팩터 — `src/db.py` 신설(커넥션 단일화·스키마 버전 가드), FK 참조 액션 명시, `external_id` NOT NULL, `link` 부분 유니크 인덱스+XOR 아크, `is_ephemeral`→`source_type`, `item_type` 조회 테이블화, `thread_key` 제거. 라이브 DB 재구축+복원. 테스트 43→48.
 
 ## 2. 파일 맵
 
 | 경로 | 역할 | 커밋 |
 |---|---|---|
-| `src/schema.sql` | DDL 8테이블 + 인덱스 + FTS5 + 트리거 3종 + 뷰 3종 + 시드 | ✅ |
+| `src/schema.sql` | DDL 9테이블 + 인덱스 + FTS5 + 트리거 3종 + 뷰 3종 + 시드 + `PRAGMA user_version` | ✅ |
+| `src/db.py` | **커넥션 단일 경로**(FK 강제·스키마 버전 가드) + 상수(`DEFAULT_PROJECT`/`SourceType`/`ItemType`) | ✅ |
 | `src/ingest.py` | 로그 파서 + 적재(멱등) + 웹 문서/파일 메타 등록 | ✅ |
 | `src/cli.py` | 통합 CLI(운영/조회). config 로딩·`--json` | ✅ |
 | `context-db.bat` | CLI 래퍼(`chcp 65001` + `python src/cli.py %*`) | ✅ |
@@ -49,11 +51,12 @@
 | `context-db.skill.md` | 에이전트 연동 skill(CLI 기반) | ✅ |
 | `src/queries.sql` | 대표 질의 Q1~Q5 + 뷰 | ✅ |
 | `README.md` | 사용법 | ✅ |
-| `tests/test_context_db.py` | 결정적 테스트 스위트(43 케이스) | ✅ |
+| `tests/test_context_db.py` | 결정적 테스트 스위트(48 케이스) | ✅ |
 | `docs/dev/*.md` | 제안서·상위설계서·상세설계·비교보고서·테스트보고서·질의응답·본 ADR | ✅ |
 | `docs/dev/context-db-상세설계서.md` | 상세설계 spec(커밋본; `.omc/specs/` 사본은 gitignore) | ✅ |
 | `docs/dev/질의응답.md` | 발표 준비 중 받은 심화 질문(FTS5/한글, 태그, 프로젝트 유지, NULL 처리, 벡터DB, `--help`, 미분류/오타) Q&A 기록 | ✅ |
-| `docs/presentation/context-db-발표원고.md` | OJT 발표용 슬라이드 구성안 + 발표 스크립트(일반 문서) | ✅ |
+| `docs/dev/context-db-erd.mmd` | **정본 ERD**(Mermaid). 스키마 변경 시 스키마-설명서와 함께 갱신 | ✅ |
+| `docs/presentation/**` | 2026-08-11 발표 · 08-14 제출 산출물. **역사적 기록이므로 스키마 변경에 맞춰 갱신하지 않는다** | ✅ |
 
 ## 3. 아키텍처 결정 기록 (ADR)
 
@@ -147,12 +150,58 @@
 - **대안**: 소스 지정을 `source_id`로만 받기(정밀하나 `sources` 조회를 먼저 강제해야 해 UX 저하) → 이름 기반 + 모호 시 `--type` 요구로 절충.
 - **결과**: 테스트 3건 추가(파일 타입 재매핑, 단순 개명, 병합) — 전체 43/43 PASS. README·skill 문서 갱신, 전역 skill 재배포. 상세 답변은 `docs/dev/질의응답.md` Q7.
 
+### ADR-014 — DB 정규화 리팩터(1NF/3NF 위반·제약 결함 제거)
+- **상태**: 채택 (2026-08-27)
+- **맥락**: 발표·제출을 마친 뒤 스키마를 정규화 관점에서 점검. 동작하는 데는 문제가 없었지만
+  정규화 위반 3건과 제약 결함 5건이 있었다. 모두 **잠재적** 결함이라는 공통점이 있다 —
+  각 컬럼을 쓰는 코드 경로가 하나뿐이라 우연히 일관성이 유지되고 있었을 뿐, 두 번째 호출부가
+  생기는 순간 깨진다.
+- **결정**: 동작 보존(CLI 명령·출력·`--json` 필드명 불변)을 전제로 8단계로 나눠 적용.
+  1. `src/db.py` 신설 — 커넥션 단일 경로. FK 강제(`PRAGMA foreign_keys`)와 스키마 버전
+     검사가 한 곳에 있어야 우회 경로가 생기지 않는다. 매직 스트링도 여기 상수화.
+  2. FK 참조 액션 명시 — 이전엔 스키마 전체에 `ON DELETE`/`ON UPDATE`가 **0건**이었다.
+     접합·부착 행은 CASCADE, 발화자는 SET NULL, 나머지는 RESTRICT.
+  3. `context_item.external_id` → `NOT NULL`. nullable이면 SQLite가 NULL을 서로 distinct로
+     취급해 `UNIQUE(source_id, external_id)`가 무력화된다.
+  4. `link` 중복 제거를 Python `IFNULL(...,-1)` 흉내에서 **부분 유니크 인덱스 2개**로 이관.
+     배타적 아크 CHECK도 OR → XOR로 강화.
+  5. `is_ephemeral` → `source_type`으로 이관. 휘발성은 소스 개별이 아니라 **유형**이 결정하는
+     값이라 `source`에 두면 이행 종속(3NF 위반)이었다.
+  6. `item_type` → 조회 테이블. 같은 성격의 `source_type`은 조회 테이블인데 이것만 CHECK
+     enum이라 **같은 개념을 두 방식으로 모델링**하고 있었다.
+  7. `thread_key` → **대체 없이 삭제**. `"채널명|날짜"` 패킹은 1NF 위반이고, 채널은
+     `source_id`가·날짜는 `event_ts`가 이미 결정하므로 중복이었다.
+  8. 라이브 DB 재구축 + 수동 데이터 복원.
+- **대안**:
+  - `item_type` 반대 방향(=`source_type`을 CHECK로 강등)도 가능했으나, 한글 라벨을 붙일 자리가
+    없고 유형 추가에 DDL 변경이 필요해 기각.
+  - `thread_key` → `thread_date DATE` 치환안은 **그 컬럼도 중복**이라 기각. 게다가 값의 출처인
+    `txt[:-4]`가 아무 `*.txt`나 받으므로 `회의록.txt` → `thread_date='회의록'`이 조용히 들어간다.
+  - `link` 테이블 분할(`context_item_link`/`source_link`)은 `cmd_links` 조인을 바꿔야 해 기각.
+  - **M:N `source_project`(ADR-003 대안)는 이번에도 기각.** 소스 21개 중 20개가 미분류인 현
+    상태에서 한 소스가 두 프로젝트에 걸쳐야 하는 상황이 실제로 발생하지 않았고, 무엇보다
+    `sources --json`의 `project` 필드가 단일값 → 다중값이 되어 **`--json` 계약을 깬다**(ADR-007).
+    이건 리팩터가 아니라 기능 변경이므로 별도 버전에서 다룬다.
+- **결과**: 테스트 43 → 48 PASS. 신규 5건은 CASCADE, SET NULL, `ON CONFLICT`가 NOT NULL을
+  삼키지 않음, 부분 UNIQUE 거부, 배타적 아크 거부.
+  - 기본 테이블 8 → 9개. `PRAGMA user_version` 도입(현재 7).
+  - **부수 발견**: 재구축 과정에서 같은 폴더를 가리키는 `file` 소스가 2개 있었음이 드러났다
+    (`메신저 받은파일`/`하이웍스 받은파일`, uri 동일). `source` 자연키가 `(source_type_id, name)`
+    이라 표시명을 바꾼 시점에 같은 폴더가 두 번 등록된 것. `link` 179건은 사실상 89건×2
+    중복이었고 재구축이 이를 정리했다.
+  - **놓쳤던 것**: 재구축 전 덤프 대상을 "CLI로만 만들어지는 데이터"(project/tag)로 잡았는데,
+    `link`도 재생성되지 않는다(원본 파일이 삭제되면 재적재가 링크를 만들 수 없다). 백업에서
+    복원. 다음 재구축 시 덤프 기준은 **"현재 원본에서 재생성되지 않는 모든 행"**.
+  - **제출본 divergence**: `docs/presentation/제출/`의 결과보고서·발표자료는 커밋 `ff6da11`
+    시점 스키마를 서술한다. 이미 제출된 학술 산출물이므로 갱신하지 않는다.
+
 ## 4. 데이터 모델 요약
 
 엔티티: `project`(1:N)→`source`←`source_type`(1:N), `source`(1:N)→`context_item`←`person`(1:N),
-`context_item`↔`tag`(**M:N** via `context_item_tag`), `link`(context_item/source에 귀속), `context_fts`(FTS5).
+`item_type`(1:N)→`context_item`, `context_item`↔`tag`(**M:N** via `context_item_tag`),
+`link`(context_item **또는** source 중 정확히 한쪽에 귀속 — 배타적 아크), `context_fts`(FTS5).
 - 자연키: `source(source_type_id, name)`, `context_item(source_id, external_id)`, `person(display_name)`, `tag(name)`.
-- 파서 규칙: 헤더 `[YYYY-MM-DD 오전/오후 H:MM] 이름`, 이후 다음 헤더 전까지 멀티라인 본문. 날짜=파일명·시각=헤더. item_type ∈ {message, system, file, note, excerpt}.
+- 파서 규칙: 헤더 `[YYYY-MM-DD 오전/오후 H:MM] 이름`, 이후 다음 헤더 전까지 멀티라인 본문. 시각=헤더(날짜 포함). 항목 유형은 `item_type` 조회 테이블 참조(message/note/excerpt/system/file).
 - 전체 DDL·근거: `docs/dev/context-db-상세설계서.md` §4~7.
 
 ## 5. 운영 방법 (빠른 시작)
@@ -192,7 +241,7 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 ※ `setx PATH "%PATH%;..."` 는 1024자 잘림·시스템경로 혼입 위험이 있어 위 방식 권장.
 
 ## 6. 테스트 상태
-- 자동화: `tests/test_context_db.py` **43 PASS / 0 FAIL** (파서·시각변환·멀티라인·item_type·FTS 트리거/검색·토큰화·멱등·Issue1 회귀·인코딩 폴백(cp949/BOM)·받은파일/웹 문서 링크·무결성(FK/CHECK)·뷰·CLI `--json`·`set-project` 전 타입 재매핑·`rename-project` 개명/병합).
+- 자동화: `tests/test_context_db.py` **48 PASS / 0 FAIL** (파서·시각변환·멀티라인·항목유형 분류·FTS 트리거/검색·토큰화·멱등·Issue1 회귀·인코딩 폴백(cp949/BOM)·받은파일/웹 문서 링크·무결성(FK/CHECK)·**FK 참조 액션(CASCADE/SET NULL)**·**배타적 아크·부분 UNIQUE**·뷰·CLI `--json`·`set-project` 전 타입 재매핑·`rename-project` 개명/병합).
 - 실데이터 스모크: 검색·watch 멱등 통과. 상세: `docs/dev/테스트보고서.md`.
 
 ## 7. 알려진 한계 & 열린 과제 (다음 에이전트가 이어받을 후보)
@@ -201,8 +250,9 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 3. **다중 프로젝트 소속**: 필요 시 `source_project` M:N 도입(ADR-003 대안).
 4. **본문 추출**: 웹 문서/PDF 텍스트 인덱싱(차기).
 5. **query_log**: 질의 이력 기록(선택 2차 기능, 미구현).
-6. **커밋/원격**: 아직 커밋 0. 원격 미연결(`origin` gone). 첫 커밋 + 원격 설정 필요.
-7. **파서 견고성**: 첨부 파일명 라인 → 받은파일 `link` 자동 매칭은 미구현(현재 item_type='file' 분류만).
+6. **파서 견고성**: 첨부 파일명 라인 → 받은파일 `link` 자동 매칭은 미구현(현재 `file` 유형 분류만).
+7. **마이그레이션 경로 부재**: 스키마 변경 시 DB 재구축 외 방법이 없다(ADR-014 참조). `user_version`은 있으나 업그레이드 스크립트가 없다.
+8. **죽은 참조본**: `src/queries.sql`을 로드하는 코드가 없고(CLI가 동등 질의를 인라인 재구현), 뷰 3종도 코드에서 미사용. DRY 문제.
 
 ## 8. 이어받는 에이전트를 위한 주의사항 (체크리스트)
 - [ ] **프라이버시**: `context.db`/`context-db.config.json`은 사적 데이터 → 절대 커밋·외부 전송 금지(이미 gitignore).
@@ -211,6 +261,9 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 - [ ] **멱등 규칙**을 깨지 말 것: source 자연키 `(type,name)`·context_item `(source_id, external_id)` 유지(ADR-002/005).
 - [ ] 스키마 변경 시 **CLI 계약(명령/`--json` 필드)** 하위호환 고려(ADR-007). skill·테스트 동반 갱신.
 - [ ] 인코딩: Windows cp949 → 스크립트는 `PYTHONIOENCODING=utf-8`/`reconfigure` 유지, `.bat`은 ASCII 주석.
+- [ ] **스키마를 바꿨다면**: `src/schema.sql`의 `PRAGMA user_version` 과 `src/db.py`의 `SCHEMA_VERSION` 을 **함께** 올리고, `docs/dev/스키마-설명서.md` + `docs/dev/context-db-erd.mmd` 를 갱신할 것.
+- [ ] **DB 재구축이 필요하다면**: 재적재로 복원되지 않는 데이터를 먼저 덤프할 것 — `project` 배정, `tag`/`context_item_tag`, **원본 파일이 이미 삭제된 `link` 행**.
+- [ ] `INSERT OR IGNORE` 금지 — UNIQUE뿐 아니라 NOT NULL·CHECK 위반까지 삼킨다. `ON CONFLICT(<대상>) DO NOTHING` 사용.
 - [ ] 변경 후 **`python tests/test_context_db.py`** 통과 확인.
 
 ## 9. 재현/검증 명령 모음

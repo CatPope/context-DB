@@ -84,137 +84,23 @@
   - 웹 문서: `https://example.com/doc/<doc-id>` → 링크만.
 - DB: SQLite 3 + FTS5. 적재: Python 3 표준 `sqlite3`.
 
-## 4. 논리 스키마 (완전 DDL — schema.sql 초안)
+## 4. 논리 스키마
 
-```sql
-PRAGMA foreign_keys = ON;
+> 이 절이 담고 있던 완전 DDL 초안(테이블·FTS 가상 테이블 정의)은 실행 가능한 산출물인
+> `src/schema.sql` 과 중복되어 스키마가 바뀔 때마다 양쪽이 따로 놀 위험이 있었다.
+> **정본(canonical) 스키마는 `src/schema.sql` 하나뿐**이며, 사람이 읽는 상세 설명은
+> `docs/dev/스키마-설명서.md` 를 참조한다. 이 설계서에는 위 두 문서에 없는 배경·근거·논의만 남긴다.
 
--- 1) PROJECT: 최상위 분류(수동 부여). 채널은 여기에 매핑됨.
-CREATE TABLE project (
-  project_id   INTEGER PRIMARY KEY,
-  name         TEXT NOT NULL UNIQUE,
-  description  TEXT,
-  created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+## 5. FTS 동기화 트리거
 
--- 2) SOURCE_TYPE(조회 테이블)
-CREATE TABLE source_type (
-  source_type_id INTEGER PRIMARY KEY,
-  code           TEXT NOT NULL UNIQUE,   -- messenger, web_doc, web_link, paper, server_info, file, note
-  label          TEXT NOT NULL
-);
+`context_fts` 는 external content FTS5 표준 패턴으로, `context_item` 의 INSERT/UPDATE/DELETE 를
+트리거 3종(`trg_ci_ai`/`trg_ci_au`/`trg_ci_ad`)이 자동으로 반영한다. 정확한 트리거 정의는
+`src/schema.sql`(및 `docs/dev/스키마-설명서.md`)을 참조한다.
 
--- 3) SOURCE: 맥락 출처. 채널 폴더 1개 = messenger source 1개. (정체성은 프로젝트와 무관)
-CREATE TABLE source (
-  source_id      INTEGER PRIMARY KEY,
-  source_type_id INTEGER NOT NULL REFERENCES source_type(source_type_id),
-  name           TEXT NOT NULL,          -- 채널명/문서명/파일저장소명
-  uri            TEXT,                   -- 폴더 절대경로/웹 문서 URL/파일 경로
-  is_ephemeral   INTEGER NOT NULL DEFAULT 0 CHECK (is_ephemeral IN (0,1)),
-  created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (source_type_id, name)   -- 채널 정체성(프로젝트 무관) → 재매핑해도 소스 중복 없음
-);
+## 6. 시드 데이터
 
--- 3-1) SOURCE_PROJECT: 채널↔프로젝트 다대다(M:N). 한 채널이 여러 주제/무주제에 대응.
-CREATE TABLE source_project (
-  source_id  INTEGER NOT NULL REFERENCES source(source_id),
-  project_id INTEGER NOT NULL REFERENCES project(project_id),
-  PRIMARY KEY (source_id, project_id)
-);
-CREATE INDEX ix_sp_project ON source_project(project_id);
-
--- 4) PERSON: 발화자. MVP는 display_name 동일 = 동일인으로 취급.
-CREATE TABLE person (
-  person_id    INTEGER PRIMARY KEY,
-  display_name TEXT NOT NULL UNIQUE,
-  role         TEXT
-);
-
--- 5) CONTEXT_ITEM: 맥락 최소 단위(대화 1건·메모·발췌). 전문검색 대상.
-CREATE TABLE context_item (
-  context_item_id INTEGER PRIMARY KEY,
-  source_id       INTEGER NOT NULL REFERENCES source(source_id),
-  person_id       INTEGER REFERENCES person(person_id),
-  item_type       TEXT NOT NULL DEFAULT 'message'
-                    CHECK (item_type IN ('message','note','excerpt','system','file')),
-  event_ts        DATETIME,
-  content         TEXT NOT NULL,
-  thread_key      TEXT,                  -- 채널|날짜 등 스레드 묶음 키(선택)
-  external_id     TEXT NOT NULL,         -- dedup 자연키: sha1(source_id|event_ts|speaker|content|line_no)
-  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (source_id, external_id)        -- 멱등 재적재 (NOT NULL 이라 NULL 중복 허용 문제 없음)
-);
-CREATE INDEX ix_item_source ON context_item(source_id);
-CREATE INDEX ix_item_ts     ON context_item(event_ts);
-CREATE INDEX ix_item_person ON context_item(person_id);
-
--- 6) LINK: 외부 자원 URL/파일. 맥락 항목 또는 소스 단독에 부착.
-CREATE TABLE link (
-  link_id         INTEGER PRIMARY KEY,
-  context_item_id INTEGER REFERENCES context_item(context_item_id),
-  source_id       INTEGER REFERENCES source(source_id),
-  url             TEXT NOT NULL,         -- URL 또는 파일 절대경로
-  title           TEXT,
-  last_checked_at DATETIME,
-  CHECK (context_item_id IS NOT NULL OR source_id IS NOT NULL)  -- 최소 한쪽 귀속
-);
-CREATE INDEX ix_link_item   ON link(context_item_id);
-CREATE INDEX ix_link_source ON link(source_id);
-
--- 7) TAG / 8) CONTEXT_ITEM_TAG (M:N)
-CREATE TABLE tag (
-  tag_id INTEGER PRIMARY KEY,
-  name   TEXT NOT NULL UNIQUE
-);
-CREATE TABLE context_item_tag (
-  context_item_id INTEGER NOT NULL REFERENCES context_item(context_item_id),
-  tag_id          INTEGER NOT NULL REFERENCES tag(tag_id),
-  PRIMARY KEY (context_item_id, tag_id)
-);
-CREATE INDEX ix_cit_tag ON context_item_tag(tag_id);
-
--- 전문검색(FTS5): 외부 콘텐츠 테이블 방식, rowid = context_item_id
-CREATE VIRTUAL TABLE context_fts USING fts5(
-  content,
-  content='context_item',
-  content_rowid='context_item_id'
-);
-```
-
-## 5. FTS 동기화 트리거 (상위설계서 누락분 — 상세설계에서 추가)
-
-```sql
--- content_item 변경을 context_fts에 자동 반영 (external content FTS 표준 패턴)
-CREATE TRIGGER trg_ci_ai AFTER INSERT ON context_item BEGIN
-  INSERT INTO context_fts(rowid, content) VALUES (new.context_item_id, new.content);
-END;
-
-CREATE TRIGGER trg_ci_ad AFTER DELETE ON context_item BEGIN
-  INSERT INTO context_fts(context_fts, rowid, content)
-  VALUES ('delete', old.context_item_id, old.content);
-END;
-
-CREATE TRIGGER trg_ci_au AFTER UPDATE ON context_item BEGIN
-  INSERT INTO context_fts(context_fts, rowid, content)
-  VALUES ('delete', old.context_item_id, old.content);
-  INSERT INTO context_fts(rowid, content) VALUES (new.context_item_id, new.content);
-END;
-```
-
-## 6. 시드 데이터 (schema.sql 하단)
-
-```sql
-INSERT INTO project (name, description) VALUES ('미분류', '프로젝트 미지정 기본 버킷');
-
-INSERT INTO source_type (code, label) VALUES
-  ('messenger',   '메신저'),
-  ('web_doc',     '웹 문서'),
-  ('web_link',    '웹 링크'),
-  ('paper',       '논문'),
-  ('server_info', '서버 정보'),
-  ('file',        '파일'),
-  ('note',        '메모');
-```
+시드 값(프로젝트 `'미분류'`, `source_type` 7종, `item_type` 5종)은 `src/schema.sql` 하단에서
+관리한다. 상세 내용은 `docs/dev/스키마-설명서.md` 참조.
 
 ## 7. Ingest 상세설계 (ingest.py — 실행 단계 구현 대상)
 
@@ -267,32 +153,11 @@ JOIN context_item_tag t ON t.context_item_id = ci.context_item_id
 JOIN tag g ON g.tag_id = t.tag_id
 LEFT JOIN link l ON l.context_item_id = ci.context_item_id
 WHERE g.name = :tag;
-
--- 뷰
-CREATE VIEW v_project_sources AS
-SELECT pr.name AS project, st.label AS type, s.name AS source, s.uri
-FROM source s
-JOIN source_project sp ON sp.source_id = s.source_id
-JOIN project pr        ON pr.project_id = sp.project_id
-JOIN source_type st    ON st.source_type_id = s.source_type_id;
-
-CREATE VIEW v_recent_context AS   -- 다주제 채널의 메시지는 매핑된 project마다 1행씩
-SELECT pr.name AS project, s.name AS source, ci.event_ts,
-       p.display_name AS author, ci.content
-FROM context_item ci
-JOIN source s          ON s.source_id = ci.source_id
-JOIN source_project sp ON sp.source_id = s.source_id
-JOIN project pr        ON pr.project_id = sp.project_id
-LEFT JOIN person p     ON p.person_id = ci.person_id
-ORDER BY ci.event_ts DESC, ci.context_item_id DESC;
-
-CREATE VIEW v_tag_links AS
-SELECT g.name AS tag, ci.content, l.url
-FROM tag g
-JOIN context_item_tag t ON t.tag_id = g.tag_id
-JOIN context_item ci    ON ci.context_item_id = t.context_item_id
-LEFT JOIN link l        ON l.context_item_id = ci.context_item_id;
 ```
+
+뷰(`v_project_sources`/`v_recent_context`/`v_tag_links`) 정의는 `src/schema.sql` 이 정본이다.
+이 절의 Q1~Q3 는 뷰가 나오기 전 설계 단계에서 검토한 대표 질의 형태를 남긴 것으로,
+현재 뷰·CLI 구현과 세부 조인 경로가 다를 수 있다(정확한 동작은 `src/queries.sql`/`src/cli.py` 참조).
 
 ## 9. Skill 연동 설계 (context-db.skill.md — 실행 단계 구현 대상)
 - **스키마 요약**: 8개 테이블 + FTS + 관계(1:N, M:N) 축약본(§3~4).

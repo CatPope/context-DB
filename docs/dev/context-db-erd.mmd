@@ -1,0 +1,77 @@
+---
+title: context-DB ERD (Crow's Foot Notation)
+---
+%% 정본 ERD. src/schema.sql 과 docs/dev/스키마-설명서.md 와 함께 갱신한다.
+%% (docs/presentation/발표 준비/ 아래의 사본은 2026-08-11 발표 시점 기록이므로 갱신하지 않는다)
+erDiagram
+    direction LR
+    PROJECT {
+        int project_id PK
+        string name
+        string description
+        datetime created_at
+    }
+    SOURCE_TYPE {
+        int source_type_id PK
+        string code
+        string label
+        int is_ephemeral
+    }
+    SOURCE {
+        int source_id PK
+        int project_id FK
+        int source_type_id FK
+        string name
+        string uri
+        datetime created_at
+    }
+    ITEM_TYPE {
+        int item_type_id PK
+        string code
+        string label
+    }
+    PERSON {
+        int person_id PK
+        string display_name
+        string role
+    }
+    CONTEXT_ITEM {
+        int context_item_id PK
+        int source_id FK
+        int person_id FK
+        int item_type_id FK
+        datetime event_ts
+        string content
+        string external_id
+        datetime created_at
+    }
+    LINK {
+        int link_id PK
+        int context_item_id FK
+        int source_id FK
+        string url
+        string title
+        datetime last_checked_at
+    }
+    TAG {
+        int tag_id PK
+        string name
+    }
+    CONTEXT_ITEM_TAG {
+        int context_item_id PK, FK
+        int tag_id PK, FK
+    }
+
+    PROJECT       ||--o{ SOURCE          : "has"
+    SOURCE_TYPE   ||--o{ SOURCE          : "classifies"
+    SOURCE        ||--o{ CONTEXT_ITEM    : "provides"
+    ITEM_TYPE     ||--o{ CONTEXT_ITEM    : "classifies"
+    PERSON        |o--o{ CONTEXT_ITEM    : "authors"
+    SOURCE        |o--o{ LINK            : "has"
+    CONTEXT_ITEM  |o--o{ LINK            : "references"
+    CONTEXT_ITEM  ||--o{ CONTEXT_ITEM_TAG: "tagged via"
+    TAG           ||--o{ CONTEXT_ITEM_TAG: "labels"
+
+%% LINK 의 배타적 아크: 한 링크는 SOURCE 또는 CONTEXT_ITEM 중 정확히 한쪽에만 붙는다.
+%% CHECK ((context_item_id IS NULL) <> (source_id IS NULL)) 로 강제하며,
+%% 크로우풋 표기로는 표현되지 않으므로 여기 주석으로 남긴다.

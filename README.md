@@ -7,8 +7,8 @@
 > **메신저 적재는 현재 하이웍스 채팅 저장 포맷만 지원**한다(다른 메신저는 추후 확장).
 > 아래 `<context-DB-path>` 는 이 저장소를 클론한 실제 경로로 바꿔 읽는다.
 
-- 상세설계: `docs/context-db-상세설계서.md`
-- 소스: `src/schema.sql` · 적재 `src/ingest.py` · CLI `src/cli.py` · 질의 모음 `src/queries.sql`
+- 상세설계: `docs/dev/context-db-상세설계서.md`
+- 소스: `src/schema.sql` · 공용 DB 접근 계층(`connect()`/버전 검사) `src/db.py` · 적재 `src/ingest.py` · CLI `src/cli.py` · 질의 모음 `src/queries.sql`
 - 에이전트 연동: `context-db.skill.md`
 
 ## 요구 사항
@@ -66,7 +66,7 @@ if ($p -notlike "*$dir*") { [Environment]::SetEnvironmentVariable('Path', ($p.Tr
 | 명령 | 설명 |
 |---|---|
 | `context-db setup [--background]` | skill 배포 + (선택) 상시 적재 등록 |
-| `context-db init` | 빈 DB에 스키마 적용 |
+| `context-db init` | 빈 DB에 스키마 적용. `PRAGMA user_version`을 현재 스키마 버전으로 도장 찍고, 이후 모든 연결에서 이 값을 검증한다. 낡은 버전의 기존 DB로 연결하면 `SchemaVersionError`가 발생하며, 에러 메시지에 재구축 절차(백업 확인 → `context.db` 삭제 → `init`/`ingest` 재실행 → 수동 상태 복원)가 함께 안내된다 |
 | `context-db ingest` | 1회 전체 적재(멱등 — 신규분만) |
 | `context-db watch [--interval 60]` | **백그라운드 지속 적재**(폴링 루프, Ctrl+C 종료) |
 | `context-db set-project "<소스명>" "<프로젝트>" [--type <코드>]` | 소스(채널/웹문서/파일함)의 프로젝트 재매핑 — 미분류 소스 배정·오배정 수정. 이름이 여러 유형에 겹칠 때만 `--type` 필요 |

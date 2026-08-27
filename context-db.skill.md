@@ -93,8 +93,10 @@ PATH 미설정 환경에서도 위 폴백 명령(`python <context-DB-path>/src/c
    - `README.md` — 명령 표(운영/조회)에 새 명령·옵션 반영.
    - `context-db.skill.md`(본 파일) — "조회 명령"/"운영 명령" 표 반영. 에이전트 동작에 영향을 주면 "사용 규칙"·"검색 팁"도 함께 수정.
    - `docs/dev/ADR-context-DB.md` — 새 ADR 항목(상태/맥락/결정/대안/결과) 추가, 상단 요약·변경 이력(작업 기록)·§6 테스트 카운트 갱신. 심화 질의응답이 있었다면 `docs/dev/질의응답.md` 에도 기록.
-5. **skill 재배포**: `context-db setup`(또는 `python src/cli.py setup`)으로 전역 `~/.claude/skills/context-db/SKILL.md` 를 다시 배포한다. `<context-DB-path>` 자리표시자가 실제 경로로 치환됐는지 확인.
-6. **git 반영은 사용자 승인 후에만**: 커밋/푸시는 명시적으로 요청받았을 때만 수행한다(문서·skill 갱신 자체는 커밋 전 준비 단계).
+   - `docs/dev/스키마-설명서.md` · `docs/dev/상위설계서.md` · `docs/dev/context-db-상세설계서.md` — 테이블/컬럼/제약이 바뀌면 함께 갱신. 단, DDL 원본은 `src/schema.sql` 한 곳에만 두고(중복 방지), 뒤 두 문서는 그 스키마를 가리키는 설명·근거만 담는다.
+5. **스키마를 구조적으로 바꾸는 변경이면(테이블/컬럼/제약 추가·삭제·변경)**: `src/schema.sql`의 `PRAGMA user_version`과 `src/db.py`의 `SCHEMA_VERSION`을 **반드시 함께** 올린다(한쪽만 올리면 기존 DB가 조용히 낡은 스키마인 채로 통과되거나, 최신 DB가 `SchemaVersionError`로 잘못 거부된다). 이어서 `docs/dev/스키마-설명서.md`와 정본 ERD `docs/dev/context-db-erd.mmd`를 최신 스키마에 맞게 갱신한다(`docs/presentation/` 아래 사본은 발표·제출 시점 기록이므로 갱신하지 않는다).
+6. **skill 재배포**: `context-db setup`(또는 `python src/cli.py setup`)으로 전역 `~/.claude/skills/context-db/SKILL.md` 를 다시 배포한다. `<context-DB-path>` 자리표시자가 실제 경로로 치환됐는지 확인.
+7. **git 반영은 사용자 승인 후에만**: 커밋/푸시는 명시적으로 요청받았을 때만 수행한다(문서·skill 갱신 자체는 커밋 전 준비 단계).
 
 ## 프라이버시
 사내·사적 대화 포함 → **로컬 전용, 외부 전송 금지**. `context.db`·설정은 커밋 금지(.gitignore).
